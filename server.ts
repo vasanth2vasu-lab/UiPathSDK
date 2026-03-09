@@ -53,17 +53,40 @@ app.post('/api/conversations', async (req, res) => {
 
 // Send a message and get response
 app.post('/api/chat', async (req, res) => {
+  let responded = false;
+
+  const sendResponse = (status: number, data: any) => {
+    if (!responded) {
+      responded = true;
+      res.status(status).json(data);
+    }
+  };
+
+  // Timeout after 60 seconds
+  const timeout = setTimeout(() => {
+    console.error('Chat request timed out after 60s');
+    sendResponse(504, { error: 'Request timed out. The agent may be unavailable.' });
+  }, 60000);
+
   try {
     const { conversationId } = req.body;
     const message = req.body.message;
+    console.log(`Chat request: conversationId=${conversationId}, message="${message}"`);
 
     const conversation = await conversationalAgent.conversations.getById(conversationId);
     const session = conversation.startSession();
 
     let responseText = '';
 
+    // Monitor connection status
+    conversationalAgent.onConnectionStatusChanged((status: any, error: any) => {
+      console.log(`Connection status: ${status}`, error ? error.message : '');
+    });
+
     session.onExchangeStart((exchange: any) => {
+      console.log('Exchange started');
       exchange.onMessageStart((msg: any) => {
+        console.log(`Message started - isAssistant: ${msg.isAssistant}`);
         if (msg.isAssistant) {
           msg.onContentPartStart((part: any) => {
             if (part.isMarkdown || part.isText) {
@@ -74,24 +97,42 @@ app.post('/api/chat', async (req, res) => {
           });
 
           msg.onCompleted(() => {
+            console.log('Assistant message completed');
+            clearTimeout(timeout);
             conversation.endSession();
-            res.json({ response: responseText });
+            sendResponse(200, { response: responseText });
           });
         }
+      });
+
+      exchange.onErrorStart((error: any) => {
+        console.error('Exchange error:', error);
+        clearTimeout(timeout);
+        conversation.endSession();
+        sendResponse(500, { error: error.message || 'Exchange error' });
       });
     });
 
     session.onErrorStart((error: any) => {
+      console.error('Session error:', error);
+      clearTimeout(timeout);
       conversation.endSession();
-      res.status(500).json({ error: error.message || 'Agent error' });
+      sendResponse(500, { error: error.message || 'Session error' });
     });
 
     session.onSessionStarted(() => {
+      console.log('Session started, sending message...');
       const exchange = session.startExchange();
       exchange.sendMessageWithContentPart({ data: message });
     });
+
+    session.onSessionEnd(() => {
+      console.log('Session ended');
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('Chat error:', error);
+    clearTimeout(timeout);
+    sendResponse(500, { error: error.message });
   }
 });
 
