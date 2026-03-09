@@ -289,7 +289,7 @@
       currentAgent = null;
     }
 
-    // Send a message
+    // Send a message with streaming response
     async function sendMessage() {
       const input = document.getElementById('message-input');
       const text = input.value.trim();
@@ -302,7 +302,10 @@
       sendBtn.disabled = true;
       input.disabled = true;
 
-      const typingEl = addMessage('Thinking...', 'assistant typing');
+      // Create assistant message bubble that will be streamed into
+      const assistantEl = addMessage('', 'assistant');
+      let currentText = '';
+      let toolIndicator = null;
 
       try {
         const res = await fetch('/api/chat', {
@@ -310,17 +313,68 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ conversationId, message: text })
         });
-        const data = await res.json();
-        typingEl.remove();
 
-        if (data.error) {
-          addMessage('Error: ' + data.error, 'assistant');
-        } else {
-          addMessage(data.response, 'assistant');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7);
+            } else if (line.startsWith('data: ') && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (eventType === 'chunk') {
+                  // Remove tool indicator if present
+                  if (toolIndicator) {
+                    toolIndicator.remove();
+                    toolIndicator = null;
+                  }
+                  currentText += data.text;
+                  assistantEl.textContent = currentText;
+                  document.getElementById('messages').scrollTop =
+                    document.getElementById('messages').scrollHeight;
+                } else if (eventType === 'tool') {
+                  if (data.status === 'started') {
+                    toolIndicator = document.createElement('div');
+                    toolIndicator.className = 'message assistant typing';
+                    toolIndicator.textContent = `Using ${data.name}...`;
+                    document.getElementById('messages').appendChild(toolIndicator);
+                    document.getElementById('messages').scrollTop =
+                      document.getElementById('messages').scrollHeight;
+                  } else if (data.status === 'completed' && toolIndicator) {
+                    toolIndicator.remove();
+                    toolIndicator = null;
+                  }
+                } else if (eventType === 'error') {
+                  assistantEl.textContent = 'Error: ' + data.message;
+                }
+              } catch (e) {}
+              eventType = '';
+            }
+          }
+        }
+
+        // If no text was received
+        if (!currentText) {
+          assistantEl.textContent = 'No response from agent.';
         }
       } catch (err) {
-        typingEl.remove();
-        addMessage('Failed to get response. Please try again.', 'assistant');
+        assistantEl.textContent = 'Failed to get response. Please try again.';
+      }
+
+      if (toolIndicator) {
+        toolIndicator.remove();
       }
 
       sendBtn.disabled = false;
