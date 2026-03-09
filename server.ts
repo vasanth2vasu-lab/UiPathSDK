@@ -84,24 +84,57 @@ app.post('/api/chat', async (req, res) => {
     });
 
     session.onExchangeStart((exchange: any) => {
-      console.log('Exchange started');
+      console.log(`Exchange started: ${exchange.exchangeId}`);
+
+      // Use onMessageCompleted at exchange level — fires when full message is done
+      exchange.onMessageCompleted((completed: any) => {
+        console.log(`Message completed - role: ${completed.role}, parts: ${completed.contentParts?.length}`);
+        if (completed.role === 'assistant' || completed.role === 'Assistant') {
+          for (const part of completed.contentParts || []) {
+            responseText += part.data ?? '';
+          }
+          console.log(`Response text: ${responseText.substring(0, 100)}...`);
+          clearTimeout(timeout);
+          conversation.endSession();
+          sendResponse(200, { response: responseText });
+        }
+      });
+
+      // Also listen at message level as fallback
       exchange.onMessageStart((msg: any) => {
-        console.log(`Message started - isAssistant: ${msg.isAssistant}`);
+        console.log(`Message started - role: ${msg.role}, isAssistant: ${msg.isAssistant}, isUser: ${msg.isUser}`);
         if (msg.isAssistant) {
           msg.onContentPartStart((part: any) => {
-            if (part.isMarkdown || part.isText) {
-              part.onChunk((chunk: any) => {
-                responseText += chunk.data ?? '';
-              });
-            }
+            console.log(`Content part started - isMarkdown: ${part.isMarkdown}, isText: ${part.isText}, mimeType: ${part.mimeType}`);
+            part.onChunk((chunk: any) => {
+              console.log(`Chunk received: ${(chunk.data ?? '').substring(0, 50)}`);
+            });
           });
 
-          msg.onCompleted(() => {
-            console.log('Assistant message completed');
-            clearTimeout(timeout);
-            conversation.endSession();
-            sendResponse(200, { response: responseText });
+          msg.onToolCallStart((toolCall: any) => {
+            console.log(`Tool call started: ${toolCall.startEvent?.toolName}`);
+            toolCall.onToolCallEnd((end: any) => {
+              console.log(`Tool call ended: ${end.output?.substring(0, 100)}`);
+            });
           });
+
+          msg.onInterruptStart(({ interruptId, startEvent }: any) => {
+            console.log(`Interrupt: ${startEvent.type}`);
+            if (startEvent.type === 'uipath_cas_tool_call_confirmation') {
+              console.log('Auto-approving tool call confirmation');
+              msg.sendInterruptEnd(interruptId, { approved: true });
+            }
+          });
+        }
+      });
+
+      exchange.onExchangeEnd(() => {
+        console.log('Exchange ended');
+        // If we haven't responded yet, send whatever we have
+        if (!responded && responseText) {
+          clearTimeout(timeout);
+          conversation.endSession();
+          sendResponse(200, { response: responseText });
         }
       });
 
