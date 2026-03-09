@@ -23,7 +23,7 @@ async function getAllFolders() {
     throw new Error(`Failed to fetch folders: ${response.status} ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data: any = await response.json();
 
   console.log(`Found ${data.value.length} folders:\n`);
   for (const folder of data.value) {
