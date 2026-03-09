@@ -105,12 +105,12 @@ app.post('/api/chat', async (req, res) => {
       exchange.onMessageCompleted((completed: any) => {
         console.log(`Message completed - role: ${completed.role}, parts: ${completed.contentParts?.length}`);
         if (completed.role === 'assistant' || completed.role === 'Assistant') {
+          // Keep only the latest assistant message text
+          responseText = '';
           for (const part of completed.contentParts || []) {
             responseText += part.data ?? '';
           }
-          console.log(`Response: ${responseText.substring(0, 200)}`);
-          clearTimeout(timeout);
-          sendResponse(200, { response: responseText });
+          console.log(`Latest response: ${responseText.substring(0, 200)}`);
         }
       });
 
@@ -127,7 +127,8 @@ app.post('/api/chat', async (req, res) => {
           msg.onToolCallStart((toolCall: any) => {
             console.log(`Tool call: ${toolCall.startEvent?.toolName}`);
             toolCall.onToolCallEnd((end: any) => {
-              console.log(`Tool result: ${end.output?.substring(0, 100)}`);
+              const output = typeof end.output === 'string' ? end.output : JSON.stringify(end.output);
+              console.log(`Tool result: ${output?.substring(0, 100)}`);
             });
           });
 
@@ -140,9 +141,9 @@ app.post('/api/chat', async (req, res) => {
 
       exchange.onExchangeEnd(() => {
         console.log('\nExchange ended');
-        if (!responded && responseText) {
-          clearTimeout(timeout);
-          sendResponse(200, { response: responseText });
+        clearTimeout(timeout);
+        if (!responded) {
+          sendResponse(200, { response: responseText || 'No response from agent.' });
         }
       });
 
