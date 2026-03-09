@@ -467,6 +467,9 @@
     let autoScroll = true;
     let agentDetail = null;
 
+    // Session cache: keyed by agent index, stores { conversationId, agentDetail, messagesHtml, scrollTop }
+    const agentSessions = new Map();
+
     const messagesEl = document.getElementById('messages');
     messagesEl.addEventListener('scroll', () => {
       autoScroll = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
@@ -502,14 +505,26 @@
       }).join('');
     }
 
+    // ─── Save current session to cache ───
+    function saveCurrentSession() {
+      if (currentAgentIndex < 0) return;
+      agentSessions.set(currentAgentIndex, {
+        conversationId,
+        agentDetail,
+        messagesHtml: messagesEl.innerHTML,
+        scrollTop: messagesEl.scrollTop
+      });
+    }
+
     // ─── Open Agent ───
     async function openAgent(index) {
       if (index === currentAgentIndex) return;
 
+      // Save outgoing session
+      saveCurrentSession();
+
       currentAgent = allAgents[index];
       currentAgentIndex = index;
-      agentDetail = null;
-      conversationId = null;
 
       const color = agentColor(index);
       const initials = currentAgent.name.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase();
@@ -522,8 +537,28 @@
       document.getElementById('chat-bar-dot').style.background = color;
       document.getElementById('chat-bar-dot').textContent = initials;
       document.getElementById('chat-bar-name').textContent = currentAgent.name;
-      document.getElementById('chat-bar-status').innerHTML = '<div class="mini-spinner" style="width:10px;height:10px;border-width:1.5px;"></div> Connecting...';
 
+      // Check for cached session
+      const cached = agentSessions.get(index);
+      if (cached && cached.conversationId) {
+        // Restore existing session
+        conversationId = cached.conversationId;
+        agentDetail = cached.agentDetail;
+        messagesEl.innerHTML = cached.messagesHtml;
+        document.getElementById('chat-bar-status').innerHTML = '<span class="status-dot"></span> Online';
+        // Restore scroll position
+        requestAnimationFrame(() => {
+          messagesEl.scrollTop = cached.scrollTop;
+        });
+        document.getElementById('message-input').focus();
+        return;
+      }
+
+      // No cached session — create a new one
+      agentDetail = null;
+      conversationId = null;
+
+      document.getElementById('chat-bar-status').innerHTML = '<div class="mini-spinner" style="width:10px;height:10px;border-width:1.5px;"></div> Connecting...';
       messagesEl.innerHTML = '<div class="loading-center"><div class="mini-spinner"></div> Starting conversation...</div>';
 
       try {
