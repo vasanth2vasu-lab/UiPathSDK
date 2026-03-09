@@ -27,7 +27,40 @@ const activeConversations = new Map<string, any>();
 app.get('/api/agents', async (_req, res) => {
   try {
     const agents = await conversationalAgent.getAll();
-    res.json(agents.map((a: any) => ({ id: a.id, name: a.name, folderId: a.folderId })));
+    res.json(agents.map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      description: a.description || '',
+      folderId: a.folderId
+    })));
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single agent details (with appearance)
+app.get('/api/agents/:agentId', async (req, res) => {
+  try {
+    const agents = await conversationalAgent.getAll();
+    const agent = agents.find((a: any) => String(a.id) === req.params.agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // Try to get appearance details
+    let appearance: any = {};
+    try {
+      const detail = await conversationalAgent.getById(agent.id);
+      appearance = detail?.appearance || {};
+    } catch (_) {}
+
+    res.json({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description || '',
+      folderId: agent.folderId,
+      welcomeTitle: appearance.welcomeTitle || '',
+      welcomeDescription: appearance.welcomeDescription || '',
+      startingPrompts: (appearance.startingPrompts || []).map((p: any) => p.prompt || p.text || p)
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

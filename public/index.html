@@ -3,180 +3,385 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UiPath Agent Chat</title>
-  <!-- Marked.js for markdown rendering -->
+  <title>UiPath Agent Hub</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
+    :root {
+      --orange: #fa4616;
+      --orange-dark: #e03d10;
+      --orange-light: #fff4f0;
+      --gray-50: #f8f9fa;
+      --gray-100: #f0f2f5;
+      --gray-200: #e0e0e0;
+      --gray-300: #ccc;
+      --gray-500: #888;
+      --gray-700: #444;
+      --gray-900: #1a1a1a;
+      --purple: #6b5ce7;
+      --purple-bg: #f8f4ff;
+      --purple-border: #e8e0f0;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+      --radius: 12px;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f0f2f5;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+      background: var(--gray-100);
+      min-height: 100vh;
+      color: var(--gray-900);
     }
 
-    header {
-      background: linear-gradient(135deg, #fa4616, #e03d10);
-      color: white;
-      padding: 16px 24px;
-      font-size: 18px;
-      font-weight: 600;
+    /* ─── Top Navigation ─── */
+    .navbar {
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 32px;
+      height: 56px;
       display: flex;
       align-items: center;
-      gap: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
 
-    header .logo { font-size: 24px; }
+    .navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--gray-900);
+      text-decoration: none;
+      cursor: pointer;
+    }
 
-    /* Agent Selection */
-    #agent-select-screen {
-      flex: 1;
+    .navbar-logo {
+      width: 28px;
+      height: 28px;
+      background: var(--orange);
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      color: white;
+      font-size: 16px;
+      font-weight: 800;
     }
 
-    .agent-card-container {
-      max-width: 600px;
+    /* ─── Page: Agent Portal ─── */
+    #portal-page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 24px 60px;
+    }
+
+    .portal-header {
+      margin-bottom: 28px;
+    }
+
+    .portal-header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 6px;
+    }
+
+    .portal-header p {
+      color: var(--gray-500);
+      font-size: 15px;
+    }
+
+    /* Search bar */
+    .search-bar {
+      position: relative;
+      margin-bottom: 24px;
+      max-width: 400px;
+    }
+
+    .search-bar input {
       width: 100%;
+      padding: 10px 16px 10px 40px;
+      border: 2px solid var(--gray-200);
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+      background: white;
     }
 
-    .agent-card-container h2 {
-      margin-bottom: 16px;
-      color: #333;
+    .search-bar input:focus { border-color: var(--orange); }
+
+    .search-bar .search-icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--gray-300);
+      font-size: 15px;
+      pointer-events: none;
     }
 
-    .agent-list {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    /* Agent grid */
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 18px;
     }
 
     .agent-card {
       background: white;
-      border: 2px solid #e0e0e0;
-      border-radius: 12px;
-      padding: 20px;
+      border-radius: var(--radius);
+      border: 1px solid var(--gray-200);
+      padding: 22px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
     }
 
     .agent-card:hover {
-      border-color: #fa4616;
-      box-shadow: 0 2px 12px rgba(250, 70, 22, 0.15);
-      transform: translateY(-1px);
+      border-color: var(--orange);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
     }
 
-    .agent-card .agent-name {
-      font-size: 18px;
+    .agent-card-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .agent-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 700;
+      flex-shrink: 0;
+      color: white;
+    }
+
+    .agent-card-info { flex: 1; min-width: 0; }
+
+    .agent-card-name {
+      font-size: 16px;
       font-weight: 600;
-      color: #333;
+      color: var(--gray-900);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .agent-card .agent-id {
-      font-size: 13px;
-      color: #888;
-      margin-top: 4px;
+    .agent-card-id {
+      font-size: 12px;
+      color: var(--gray-500);
+      font-family: monospace;
     }
 
-    /* Chat Screen */
-    #chat-screen {
+    .agent-card-desc {
+      font-size: 13.5px;
+      color: var(--gray-700);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
       flex: 1;
+    }
+
+    .agent-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--gray-100);
+    }
+
+    .agent-card-btn {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--orange);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .agent-card:hover .agent-card-btn { text-decoration: underline; }
+
+    .no-agents {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--gray-500);
+      font-size: 15px;
+    }
+
+    /* ─── Page: Chat ─── */
+    #chat-page {
       display: none;
+      height: 100vh;
       flex-direction: column;
     }
 
-    #chat-header {
+    #chat-page.active {
+      display: flex;
+    }
+
+    #portal-page.hidden { display: none; }
+    .navbar.chat-mode { position: relative; }
+
+    .chat-header {
       background: white;
       padding: 12px 24px;
-      border-bottom: 1px solid #e0e0e0;
+      border-bottom: 1px solid var(--gray-200);
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
-    #chat-header .back-btn {
+    .chat-back-btn {
       background: none;
-      border: none;
-      font-size: 20px;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      padding: 6px 10px;
       cursor: pointer;
-      color: #666;
-      padding: 4px 8px;
-      border-radius: 6px;
+      font-size: 16px;
+      color: var(--gray-700);
+      transition: all 0.15s;
     }
 
-    #chat-header .back-btn:hover { background: #f0f0f0; }
+    .chat-back-btn:hover { background: var(--gray-50); border-color: var(--gray-300); }
 
-    #chat-agent-name { font-weight: 600; color: #333; }
-    #chat-agent-status {
-      font-size: 12px;
-      color: #4caf50;
-      margin-left: 4px;
-    }
+    .chat-header-info { flex: 1; }
+    .chat-header-name { font-weight: 600; font-size: 15px; color: var(--gray-900); }
+    .chat-header-status { font-size: 12px; color: #4caf50; }
 
+    /* Messages area */
     #messages {
       flex: 1;
       overflow-y: auto;
       padding: 24px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 6px;
+      background: var(--gray-50);
       scroll-behavior: smooth;
     }
 
-    /* Message row with avatar */
+    /* Welcome card inside chat */
+    .chat-welcome {
+      max-width: 500px;
+      margin: auto;
+      text-align: center;
+      padding: 40px 24px;
+    }
+
+    .chat-welcome .cw-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 16px;
+    }
+
+    .chat-welcome h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--gray-900);
+      margin-bottom: 6px;
+    }
+
+    .chat-welcome p {
+      color: var(--gray-500);
+      font-size: 14px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .prompt-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .prompt-chip {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 20px;
+      padding: 8px 16px;
+      font-size: 13px;
+      color: var(--gray-700);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .prompt-chip:hover {
+      border-color: var(--orange);
+      color: var(--orange);
+      background: var(--orange-light);
+    }
+
+    /* Message rows */
     .message-row {
       display: flex;
       gap: 10px;
       align-items: flex-start;
-      animation: fadeIn 0.25s ease-out;
+      animation: fadeSlideIn 0.25s ease-out;
     }
 
     .message-row.user { flex-direction: row-reverse; }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(8px); }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
     .avatar {
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 700;
       flex-shrink: 0;
       margin-top: 2px;
     }
 
-    .avatar.bot {
-      background: linear-gradient(135deg, #fa4616, #ff7043);
-      color: white;
-    }
-
-    .avatar.human {
-      background: #e0e0e0;
-      color: #555;
-    }
+    .avatar.bot { background: linear-gradient(135deg, var(--orange), #ff7043); color: white; }
+    .avatar.human { background: var(--gray-200); color: var(--gray-700); }
 
     .message {
       max-width: 70%;
-      padding: 12px 16px;
+      padding: 10px 16px;
       border-radius: 16px;
       line-height: 1.6;
       word-wrap: break-word;
-      font-size: 14.5px;
+      font-size: 14px;
     }
 
     .message.user {
-      background: #fa4616;
+      background: var(--orange);
       color: white;
       border-bottom-right-radius: 4px;
       white-space: pre-wrap;
@@ -184,165 +389,90 @@
 
     .message.assistant {
       background: white;
-      color: #333;
+      color: var(--gray-900);
       border-bottom-left-radius: 4px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      box-shadow: var(--shadow-sm);
     }
 
-    /* Markdown content styles inside assistant messages */
-    .message.assistant p { margin: 0 0 8px 0; }
+    /* Markdown inside assistant */
+    .message.assistant p { margin: 0 0 8px; }
     .message.assistant p:last-child { margin-bottom: 0; }
-
-    .message.assistant h1,
-    .message.assistant h2,
-    .message.assistant h3 {
-      margin: 12px 0 6px 0;
-      font-size: 15px;
-      font-weight: 700;
-      color: #222;
-    }
+    .message.assistant h1, .message.assistant h2, .message.assistant h3 { margin: 10px 0 4px; font-weight: 700; color: var(--gray-900); }
     .message.assistant h1 { font-size: 17px; }
     .message.assistant h2 { font-size: 16px; }
-
-    .message.assistant ul,
-    .message.assistant ol {
-      margin: 6px 0;
-      padding-left: 20px;
-    }
-
-    .message.assistant li { margin: 3px 0; }
-
-    .message.assistant code {
-      background: #f5f5f5;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 13px;
-      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-      color: #d63384;
-    }
-
-    .message.assistant pre {
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 12px 16px;
-      border-radius: 8px;
-      overflow-x: auto;
-      margin: 8px 0;
-      font-size: 13px;
-    }
-
-    .message.assistant pre code {
-      background: none;
-      padding: 0;
-      color: inherit;
-      font-size: inherit;
-    }
-
-    .message.assistant table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 8px 0;
-      font-size: 13.5px;
-    }
-
-    .message.assistant th {
-      background: #f8f8f8;
-      font-weight: 600;
-      text-align: left;
-      padding: 8px 10px;
-      border-bottom: 2px solid #e0e0e0;
-    }
-
-    .message.assistant td {
-      padding: 7px 10px;
-      border-bottom: 1px solid #eee;
-    }
-
-    .message.assistant tr:hover td {
-      background: #fafafa;
-    }
-
-    .message.assistant a {
-      color: #fa4616;
-      text-decoration: none;
-    }
-
+    .message.assistant h3 { font-size: 15px; }
+    .message.assistant ul, .message.assistant ol { margin: 4px 0; padding-left: 20px; }
+    .message.assistant li { margin: 2px 0; }
+    .message.assistant code { background: #f3f3f3; padding: 2px 5px; border-radius: 4px; font-size: 13px; font-family: 'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; color: #d63384; }
+    .message.assistant pre { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; margin: 6px 0; font-size: 13px; }
+    .message.assistant pre code { background: none; padding: 0; color: inherit; }
+    .message.assistant table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+    .message.assistant th { background: var(--gray-50); font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--gray-200); }
+    .message.assistant td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+    .message.assistant tr:hover td { background: var(--gray-50); }
+    .message.assistant a { color: var(--orange); text-decoration: none; }
     .message.assistant a:hover { text-decoration: underline; }
+    .message.assistant blockquote { border-left: 3px solid var(--orange); padding: 4px 12px; margin: 6px 0; color: var(--gray-700); background: var(--gray-50); border-radius: 0 6px 6px 0; }
+    .message.assistant hr { border: none; border-top: 1px solid #eee; margin: 8px 0; }
 
-    .message.assistant blockquote {
-      border-left: 3px solid #fa4616;
-      padding: 4px 12px;
-      margin: 8px 0;
-      color: #555;
-      background: #fafafa;
-      border-radius: 0 6px 6px 0;
+    /* Timestamp */
+    .msg-time {
+      font-size: 11px;
+      color: #bbb;
+      margin: 2px 0 4px 42px;
     }
+    .msg-time.user { text-align: right; margin-right: 42px; margin-left: 0; }
 
-    .message.assistant strong { font-weight: 600; }
-
-    .message.assistant hr {
-      border: none;
-      border-top: 1px solid #eee;
-      margin: 10px 0;
-    }
-
-    /* Tool call indicator */
+    /* Tool indicator */
     .tool-indicator {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 14px;
-      background: #f8f4ff;
-      border: 1px solid #e8e0f0;
+      padding: 7px 14px;
+      background: var(--purple-bg);
+      border: 1px solid var(--purple-border);
       border-radius: 10px;
       font-size: 13px;
-      color: #6b5ce7;
-      animation: fadeIn 0.25s ease-out;
+      color: var(--purple);
+      animation: fadeSlideIn 0.25s ease-out;
       align-self: flex-start;
       margin-left: 42px;
     }
 
     .tool-spinner {
-      width: 14px;
-      height: 14px;
-      border: 2px solid #e8e0f0;
-      border-top-color: #6b5ce7;
+      width: 14px; height: 14px;
+      border: 2px solid var(--purple-border);
+      border-top-color: var(--purple);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Typing dots indicator */
+    /* Typing dots */
     .typing-indicator {
       display: flex;
       align-items: center;
       gap: 4px;
-      padding: 12px 18px;
+      padding: 12px 16px;
       align-self: flex-start;
       margin-left: 42px;
-      animation: fadeIn 0.25s ease-out;
+      animation: fadeSlideIn 0.2s ease-out;
     }
 
     .typing-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #ccc;
+      width: 7px; height: 7px; border-radius: 50%; background: var(--gray-300);
       animation: bounce 1.2s infinite;
     }
-
     .typing-dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
     @keyframes bounce {
       0%, 60%, 100% { transform: translateY(0); }
-      30% { transform: translateY(-6px); }
+      30% { transform: translateY(-5px); }
     }
 
-    /* Citation sources */
+    /* Citation links */
     .citation-bar {
       display: flex;
       flex-wrap: wrap;
@@ -357,233 +487,290 @@
       align-items: center;
       gap: 4px;
       padding: 3px 10px;
-      background: #f0f0f0;
+      background: var(--gray-100);
       border-radius: 12px;
       font-size: 12px;
-      color: #555;
+      color: var(--gray-700);
       text-decoration: none;
       transition: background 0.15s;
     }
 
-    .citation-link:hover {
-      background: #e0e0e0;
-      color: #333;
-    }
-
-    /* Timestamp */
-    .msg-time {
-      font-size: 11px;
-      color: #aaa;
-      margin-top: 4px;
-      margin-left: 42px;
-    }
-
-    .msg-time.user { text-align: right; margin-right: 42px; margin-left: 0; }
+    .citation-link:hover { background: var(--gray-200); }
 
     /* Input area */
-    #input-area {
+    .chat-input-area {
       background: white;
-      padding: 16px 24px;
-      border-top: 1px solid #e0e0e0;
+      padding: 14px 24px;
+      border-top: 1px solid var(--gray-200);
       display: flex;
-      gap: 12px;
+      gap: 10px;
     }
 
-    #message-input {
+    .chat-input-area input {
       flex: 1;
-      padding: 12px 16px;
-      border: 2px solid #e0e0e0;
+      padding: 11px 16px;
+      border: 2px solid var(--gray-200);
       border-radius: 24px;
-      font-size: 15px;
+      font-size: 14px;
       outline: none;
       transition: border-color 0.2s;
     }
 
-    #message-input:focus { border-color: #fa4616; }
-    #message-input:disabled { background: #f8f8f8; }
+    .chat-input-area input:focus { border-color: var(--orange); }
+    .chat-input-area input:disabled { background: var(--gray-50); }
 
-    #send-btn {
-      background: #fa4616;
+    .send-btn {
+      background: var(--orange);
       color: white;
       border: none;
       border-radius: 24px;
-      padding: 12px 24px;
-      font-size: 15px;
+      padding: 11px 22px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s, transform 0.1s;
     }
 
-    #send-btn:hover { background: #e03d10; }
-    #send-btn:active { transform: scale(0.97); }
-    #send-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+    .send-btn:hover { background: var(--orange-dark); }
+    .send-btn:active { transform: scale(0.97); }
+    .send-btn:disabled { background: var(--gray-300); cursor: not-allowed; transform: none; }
 
-    .loading {
+    .loading-page {
       text-align: center;
-      padding: 40px;
-      color: #888;
+      padding: 80px 20px;
+      color: var(--gray-500);
     }
 
-    .error {
+    .loading-page .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--gray-200);
+      border-top-color: var(--orange);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    .error-msg {
       background: #fee;
       color: #c00;
       padding: 12px 16px;
       border-radius: 8px;
-      margin: 12px 24px;
-    }
-
-    /* Welcome message */
-    .welcome-msg {
       text-align: center;
-      color: #999;
-      padding: 40px 20px;
-      font-size: 14px;
-      line-height: 1.6;
     }
 
-    .welcome-msg .icon { font-size: 36px; margin-bottom: 8px; }
+    @media (max-width: 600px) {
+      .agent-grid { grid-template-columns: 1fr; }
+      .message { max-width: 85%; }
+      #portal-page { padding: 20px 16px; }
+      .navbar { padding: 0 16px; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <span class="logo">&#9670;</span>
-    UiPath Agent Chat
-  </header>
+  <!-- Navigation -->
+  <nav class="navbar" id="navbar">
+    <a class="navbar-brand" onclick="goHome()">
+      <div class="navbar-logo">U</div>
+      Agent Hub
+    </a>
+  </nav>
 
-  <!-- Agent Selection Screen -->
-  <div id="agent-select-screen">
-    <div class="agent-card-container">
-      <h2>Select an Agent</h2>
-      <div id="agent-list" class="agent-list">
-        <div class="loading">Loading agents...</div>
+  <!-- Portal Page -->
+  <div id="portal-page">
+    <div class="portal-header">
+      <h1>Conversational Agents</h1>
+      <p>Select an agent to start a conversation</p>
+    </div>
+
+    <div class="search-bar">
+      <span class="search-icon">&#128269;</span>
+      <input type="text" id="search-input" placeholder="Search agents..." oninput="filterAgents()" />
+    </div>
+
+    <div class="agent-grid" id="agent-grid">
+      <div class="loading-page">
+        <div class="spinner"></div>
+        Loading agents...
       </div>
     </div>
   </div>
 
-  <!-- Chat Screen -->
-  <div id="chat-screen">
-    <div id="chat-header">
-      <button class="back-btn" onclick="showAgentList()">&larr;</button>
-      <span id="chat-agent-name"></span>
-      <span id="chat-agent-status">Online</span>
+  <!-- Chat Page -->
+  <div id="chat-page">
+    <div class="chat-header">
+      <button class="chat-back-btn" onclick="goHome()" title="Back to agents">&larr;</button>
+      <div class="chat-header-info">
+        <div class="chat-header-name" id="chat-agent-name"></div>
+        <div class="chat-header-status" id="chat-status">Online</div>
+      </div>
     </div>
     <div id="messages"></div>
-    <div id="input-area">
+    <div class="chat-input-area">
       <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" />
-      <button id="send-btn" onclick="sendMessage()">Send</button>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
     </div>
   </div>
 
   <script>
-    // Configure marked for safe rendering
+    // ─── Marked config ───
     if (typeof marked !== 'undefined') {
-      marked.setOptions({
-        breaks: true,
-        gfm: true
-      });
+      marked.setOptions({ breaks: true, gfm: true });
     }
 
     function renderMarkdown(text) {
       if (!text) return '';
-      if (typeof marked !== 'undefined') {
-        return marked.parse(text);
-      }
-      // Fallback: basic escaping + line breaks
-      return text
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
+      if (typeof marked !== 'undefined') return marked.parse(text);
+      return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
     }
 
-    function formatTime(date) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    function formatTime(d) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    // Agent color palette
+    const COLORS = ['#fa4616','#2196f3','#4caf50','#9c27b0','#ff9800','#00bcd4','#e91e63','#607d8b','#795548','#3f51b5'];
+
+    function agentColor(index) { return COLORS[index % COLORS.length]; }
+
+    // ─── State ───
+    let allAgents = [];
     let currentAgent = null;
+    let currentAgentIndex = 0;
     let conversationId = null;
     let autoScroll = true;
+    let agentDetail = null;
 
     const messagesEl = document.getElementById('messages');
     messagesEl.addEventListener('scroll', () => {
-      const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
-      autoScroll = atBottom;
+      autoScroll = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
     });
 
     function scrollToBottom(smooth = true) {
       if (!autoScroll) return;
-      messagesEl.scrollTo({
-        top: messagesEl.scrollHeight,
-        behavior: smooth ? 'smooth' : 'instant'
-      });
+      messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: smooth ? 'smooth' : 'instant' });
     }
 
-    // Load agents
+    // ─── Portal ───
     async function loadAgents() {
       try {
         const res = await fetch('/api/agents');
-        const agents = await res.json();
-        const container = document.getElementById('agent-list');
+        allAgents = await res.json();
+        renderAgentGrid(allAgents);
+      } catch (err) {
+        document.getElementById('agent-grid').innerHTML =
+          '<div class="error-msg">Failed to load agents. Check server connection.</div>';
+      }
+    }
 
-        if (agents.length === 0) {
-          container.innerHTML = '<div class="loading">No agents found.</div>';
-          return;
+    function renderAgentGrid(agents) {
+      const grid = document.getElementById('agent-grid');
+      if (agents.length === 0) {
+        grid.innerHTML = '<div class="no-agents">No agents found.</div>';
+        return;
+      }
+      grid.innerHTML = agents.map((agent, i) => {
+        const color = agentColor(allAgents.indexOf(agent));
+        const initials = agent.name.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase();
+        const desc = agent.description || 'Conversational agent ready to assist you.';
+        return `
+          <div class="agent-card" onclick="openAgent(${allAgents.indexOf(agent)})">
+            <div class="agent-card-top">
+              <div class="agent-icon" style="background:${color}">${initials}</div>
+              <div class="agent-card-info">
+                <div class="agent-card-name" title="${agent.name}">${agent.name}</div>
+                <div class="agent-card-id">#${agent.id}</div>
+              </div>
+            </div>
+            <div class="agent-card-desc">${desc}</div>
+            <div class="agent-card-footer">
+              <span class="agent-card-btn">Start Chat &rarr;</span>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function filterAgents() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      if (!q) { renderAgentGrid(allAgents); return; }
+      const filtered = allAgents.filter(a =>
+        a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q)
+      );
+      renderAgentGrid(filtered);
+    }
+
+    // ─── Open Agent Chat ───
+    async function openAgent(index) {
+      currentAgent = allAgents[index];
+      currentAgentIndex = index;
+      agentDetail = null;
+
+      document.getElementById('chat-agent-name').textContent = currentAgent.name;
+      document.getElementById('chat-status').textContent = 'Connecting...';
+      document.getElementById('portal-page').classList.add('hidden');
+      document.getElementById('chat-page').classList.add('active');
+
+      messagesEl.innerHTML = '<div class="loading-page"><div class="spinner"></div>Starting conversation...</div>';
+
+      // Fetch agent detail + create conversation in parallel
+      try {
+        const [detailRes, convRes] = await Promise.all([
+          fetch('/api/agents/' + currentAgent.id).then(r => r.json()).catch(() => null),
+          fetch('/api/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agentId: currentAgent.id, folderId: currentAgent.folderId, label: 'Web Chat' })
+          }).then(r => r.json())
+        ]);
+
+        agentDetail = detailRes;
+        conversationId = convRes.conversationId;
+        document.getElementById('chat-status').textContent = 'Online';
+
+        // Show welcome card
+        const color = agentColor(index);
+        const initials = currentAgent.name.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase();
+        const title = agentDetail?.welcomeTitle || ('Chat with ' + currentAgent.name);
+        const desc = agentDetail?.welcomeDescription || currentAgent.description || 'Ask anything to get started.';
+        const prompts = agentDetail?.startingPrompts || [];
+
+        let promptsHtml = '';
+        if (prompts.length > 0) {
+          promptsHtml = '<div class="prompt-chips">' +
+            prompts.map(p => `<button class="prompt-chip" onclick="usePrompt(this)">${p}</button>`).join('') +
+            '</div>';
         }
 
-        container.innerHTML = agents.map(agent => `
-          <div class="agent-card" onclick="selectAgent(${JSON.stringify(agent).replace(/"/g, '&quot;')})">
-            <div class="agent-name">${agent.name}</div>
-            <div class="agent-id">ID: ${agent.id}</div>
-          </div>
-        `).join('');
-      } catch (err) {
-        document.getElementById('agent-list').innerHTML =
-          '<div class="error">Failed to load agents. Check server connection.</div>';
-      }
-    }
-
-    // Select agent and start conversation
-    async function selectAgent(agent) {
-      currentAgent = agent;
-      document.getElementById('chat-agent-name').textContent = agent.name;
-      document.getElementById('agent-select-screen').style.display = 'none';
-      document.getElementById('chat-screen').style.display = 'flex';
-      document.getElementById('messages').innerHTML = '<div class="loading">Starting conversation...</div>';
-
-      try {
-        const res = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: agent.id,
-            folderId: agent.folderId,
-            label: 'Web Chat'
-          })
-        });
-        const data = await res.json();
-        conversationId = data.conversationId;
-        document.getElementById('messages').innerHTML = `
-          <div class="welcome-msg">
-            <div class="icon">&#9670;</div>
-            Chat with <strong>${agent.name}</strong><br>
-            Ask anything to get started.
+        messagesEl.innerHTML = `
+          <div class="chat-welcome">
+            <div class="cw-icon" style="background:${color}">${initials}</div>
+            <h2>${title}</h2>
+            <p>${desc}</p>
+            ${promptsHtml}
           </div>`;
+
         document.getElementById('message-input').focus();
       } catch (err) {
-        document.getElementById('messages').innerHTML =
-          '<div class="error">Failed to start conversation.</div>';
+        messagesEl.innerHTML = '<div class="error-msg">Failed to start conversation. Please try again.</div>';
+        document.getElementById('chat-status').textContent = 'Error';
       }
     }
 
-    function showAgentList() {
-      document.getElementById('chat-screen').style.display = 'none';
-      document.getElementById('agent-select-screen').style.display = 'flex';
-      conversationId = null;
-      currentAgent = null;
+    function usePrompt(el) {
+      document.getElementById('message-input').value = el.textContent;
+      sendMessage();
     }
 
-    // Add a message to the chat with avatar and timestamp
+    function goHome() {
+      document.getElementById('chat-page').classList.remove('active');
+      document.getElementById('portal-page').classList.remove('hidden');
+      conversationId = null;
+      currentAgent = null;
+      agentDetail = null;
+    }
+
+    // ─── Chat helpers ───
     function addMessage(text, role) {
-      // Remove welcome message
-      const welcome = messagesEl.querySelector('.welcome-msg');
+      const welcome = messagesEl.querySelector('.chat-welcome');
       if (welcome) welcome.remove();
 
       const row = document.createElement('div');
@@ -605,7 +792,6 @@
       row.appendChild(bubble);
       messagesEl.appendChild(row);
 
-      // Timestamp
       const timeEl = document.createElement('div');
       timeEl.className = 'msg-time' + (role === 'user' ? ' user' : '');
       timeEl.textContent = formatTime(new Date());
@@ -616,7 +802,6 @@
       return bubble;
     }
 
-    // Show typing dots
     function showTypingIndicator() {
       const el = document.createElement('div');
       el.className = 'typing-indicator';
@@ -624,7 +809,6 @@
       el.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
       messagesEl.appendChild(el);
       scrollToBottom();
-      return el;
     }
 
     function removeTypingIndicator() {
@@ -632,15 +816,13 @@
       if (el) el.remove();
     }
 
-    // Show tool call indicator with spinner
     function showToolIndicator(toolName) {
       const el = document.createElement('div');
       el.className = 'tool-indicator';
       el.id = 'tool-active';
-      el.innerHTML = `<div class="tool-spinner"></div> Using <strong>${toolName}</strong>...`;
+      el.innerHTML = '<div class="tool-spinner"></div> Using <strong>' + toolName + '</strong>...';
       messagesEl.appendChild(el);
       scrollToBottom();
-      return el;
     }
 
     function removeToolIndicator() {
@@ -648,7 +830,7 @@
       if (el) el.remove();
     }
 
-    // Send message with streaming
+    // ─── Send message with SSE streaming ───
     async function sendMessage() {
       const input = document.getElementById('message-input');
       const text = input.value.trim();
@@ -661,10 +843,8 @@
       sendBtn.disabled = true;
       input.disabled = true;
 
-      // Show typing indicator
-      const typingEl = showTypingIndicator();
+      showTypingIndicator();
 
-      // Create assistant bubble (hidden until first chunk)
       let assistantEl = null;
       let currentText = '';
       let citations = [];
@@ -718,9 +898,7 @@
                   }
 
                 } else if (eventType === 'citations') {
-                  if (data.citations) {
-                    citations = citations.concat(data.citations);
-                  }
+                  if (data.citations) citations = citations.concat(data.citations);
 
                 } else if (eventType === 'citation') {
                   citations.push(data);
@@ -737,33 +915,30 @@
           }
         }
 
-        // Render citations if any
+        // Render citations
         if (assistantEl && citations.length > 0) {
-          const citationBar = document.createElement('div');
-          citationBar.className = 'citation-bar';
-          const uniqueUrls = new Set();
+          const bar = document.createElement('div');
+          bar.className = 'citation-bar';
+          const seen = new Set();
           citations.forEach(c => {
             (c.sources || []).forEach(s => {
               const url = s.url || s.downloadUrl;
               const title = s.title || 'Source';
-              if (url && !uniqueUrls.has(url)) {
-                uniqueUrls.add(url);
+              if (url && !seen.has(url)) {
+                seen.add(url);
                 const a = document.createElement('a');
                 a.className = 'citation-link';
                 a.href = url;
                 a.target = '_blank';
                 a.rel = 'noopener';
                 a.textContent = title;
-                citationBar.appendChild(a);
+                bar.appendChild(a);
               }
             });
           });
-          if (citationBar.children.length > 0) {
-            assistantEl.appendChild(citationBar);
-          }
+          if (bar.children.length > 0) assistantEl.appendChild(bar);
         }
 
-        // No response received
         if (!currentText && firstChunk) {
           removeTypingIndicator();
           removeToolIndicator();
@@ -791,6 +966,7 @@
       }
     });
 
+    // Init
     loadAgents();
   </script>
 </body>
