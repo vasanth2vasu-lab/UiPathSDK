@@ -51,6 +51,9 @@ app.post('/api/conversations', async (req, res) => {
   }
 });
 
+// Store active sessions keyed by conversationId
+const activeSessions = new Map<string, any>();
+
 // Send a message and get response
 app.post('/api/chat', async (req, res) => {
   let responded = false;
@@ -62,78 +65,83 @@ app.post('/api/chat', async (req, res) => {
     }
   };
 
-  // Timeout after 60 seconds
   const timeout = setTimeout(() => {
-    console.error('Chat request timed out after 60s');
+    console.error('Chat request timed out after 90s');
     sendResponse(504, { error: 'Request timed out. The agent may be unavailable.' });
-  }, 60000);
+  }, 90000);
 
   try {
     const { conversationId } = req.body;
     const message = req.body.message;
-    console.log(`Chat request: conversationId=${conversationId}, message="${message}"`);
+    console.log(`\n--- Chat request ---`);
+    console.log(`conversationId: ${conversationId}`);
+    console.log(`message: "${message}"`);
 
     const conversation = await conversationalAgent.conversations.getById(conversationId);
-    const session = conversation.startSession();
+
+    // Reuse existing session or create new one
+    let session = activeSessions.get(conversationId);
+    let needsSessionStart = false;
+
+    if (!session || session.ended) {
+      console.log('Creating new session...');
+      session = conversation.startSession();
+      activeSessions.set(conversationId, session);
+      needsSessionStart = true;
+
+      conversationalAgent.onConnectionStatusChanged((status: any, error: any) => {
+        console.log(`Connection: ${status}`, error ? `- ${error.message}` : '');
+      });
+    } else {
+      console.log('Reusing existing session');
+    }
 
     let responseText = '';
 
-    // Monitor connection status
-    conversationalAgent.onConnectionStatusChanged((status: any, error: any) => {
-      console.log(`Connection status: ${status}`, error ? error.message : '');
-    });
-
-    session.onExchangeStart((exchange: any) => {
+    // Helper to register exchange handlers
+    const handleExchange = (exchange: any) => {
       console.log(`Exchange started: ${exchange.exchangeId}`);
 
-      // Use onMessageCompleted at exchange level — fires when full message is done
       exchange.onMessageCompleted((completed: any) => {
         console.log(`Message completed - role: ${completed.role}, parts: ${completed.contentParts?.length}`);
         if (completed.role === 'assistant' || completed.role === 'Assistant') {
           for (const part of completed.contentParts || []) {
             responseText += part.data ?? '';
           }
-          console.log(`Response text: ${responseText.substring(0, 100)}...`);
+          console.log(`Response: ${responseText.substring(0, 200)}`);
           clearTimeout(timeout);
-          conversation.endSession();
           sendResponse(200, { response: responseText });
         }
       });
 
-      // Also listen at message level as fallback
       exchange.onMessageStart((msg: any) => {
-        console.log(`Message started - role: ${msg.role}, isAssistant: ${msg.isAssistant}, isUser: ${msg.isUser}`);
+        console.log(`Message - role: ${msg.role}, isAssistant: ${msg.isAssistant}`);
         if (msg.isAssistant) {
           msg.onContentPartStart((part: any) => {
-            console.log(`Content part started - isMarkdown: ${part.isMarkdown}, isText: ${part.isText}, mimeType: ${part.mimeType}`);
+            console.log(`Content part: mimeType=${part.mimeType}`);
             part.onChunk((chunk: any) => {
-              console.log(`Chunk received: ${(chunk.data ?? '').substring(0, 50)}`);
+              process.stdout.write('.');
             });
           });
 
           msg.onToolCallStart((toolCall: any) => {
-            console.log(`Tool call started: ${toolCall.startEvent?.toolName}`);
+            console.log(`Tool call: ${toolCall.startEvent?.toolName}`);
             toolCall.onToolCallEnd((end: any) => {
-              console.log(`Tool call ended: ${end.output?.substring(0, 100)}`);
+              console.log(`Tool result: ${end.output?.substring(0, 100)}`);
             });
           });
 
           msg.onInterruptStart(({ interruptId, startEvent }: any) => {
             console.log(`Interrupt: ${startEvent.type}`);
-            if (startEvent.type === 'uipath_cas_tool_call_confirmation') {
-              console.log('Auto-approving tool call confirmation');
-              msg.sendInterruptEnd(interruptId, { approved: true });
-            }
+            msg.sendInterruptEnd(interruptId, { approved: true });
           });
         }
       });
 
       exchange.onExchangeEnd(() => {
-        console.log('Exchange ended');
-        // If we haven't responded yet, send whatever we have
+        console.log('\nExchange ended');
         if (!responded && responseText) {
           clearTimeout(timeout);
-          conversation.endSession();
           sendResponse(200, { response: responseText });
         }
       });
@@ -141,27 +149,42 @@ app.post('/api/chat', async (req, res) => {
       exchange.onErrorStart((error: any) => {
         console.error('Exchange error:', error);
         clearTimeout(timeout);
-        conversation.endSession();
         sendResponse(500, { error: error.message || 'Exchange error' });
       });
-    });
+    };
+
+    // Listen for exchanges triggered by the server (response to our message)
+    session.onExchangeStart(handleExchange);
 
     session.onErrorStart((error: any) => {
       console.error('Session error:', error);
       clearTimeout(timeout);
-      conversation.endSession();
+      activeSessions.delete(conversationId);
       sendResponse(500, { error: error.message || 'Session error' });
-    });
-
-    session.onSessionStarted(() => {
-      console.log('Session started, sending message...');
-      const exchange = session.startExchange();
-      exchange.sendMessageWithContentPart({ data: message });
     });
 
     session.onSessionEnd(() => {
       console.log('Session ended');
+      activeSessions.delete(conversationId);
     });
+
+    const sendUserMessage = () => {
+      console.log('Sending message to agent...');
+      const exchange = session.startExchange();
+      // Register handlers on the exchange we created too
+      handleExchange(exchange);
+      exchange.sendMessageWithContentPart({ data: message });
+      console.log('Message sent, waiting for response...');
+    };
+
+    if (needsSessionStart) {
+      session.onSessionStarted(() => {
+        console.log('Session ready');
+        sendUserMessage();
+      });
+    } else {
+      sendUserMessage();
+    }
   } catch (error: any) {
     console.error('Chat error:', error);
     clearTimeout(timeout);
