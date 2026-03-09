@@ -117,10 +117,33 @@ app.post('/api/chat', async (req, res) => {
       exchange.onMessageStart((msg: any) => {
         if (msg.isAssistant) {
           msg.onContentPartStart((part: any) => {
-            if (part.isMarkdown || part.isText) {
+            if (part.isMarkdown || part.isText || part.isHtml) {
+              const format = part.isMarkdown ? 'markdown' : part.isHtml ? 'html' : 'text';
               part.onChunk((chunk: any) => {
                 if (chunk.data) {
-                  sendEvent('chunk', { text: chunk.data });
+                  sendEvent('chunk', { text: chunk.data, format });
+                }
+                if (chunk.citation) {
+                  sendEvent('citation', {
+                    offset: chunk.citation.offset,
+                    length: chunk.citation.length,
+                    sources: chunk.citation.sources
+                  });
+                }
+              });
+              part.onCompleted?.((completed: any) => {
+                if (completed.citations && completed.citations.length > 0) {
+                  sendEvent('citations', {
+                    citations: completed.citations.map((c: any) => ({
+                      offset: c.offset,
+                      length: c.length,
+                      sources: c.sources?.map((s: any) => ({
+                        url: s.url,
+                        downloadUrl: s.downloadUrl,
+                        title: s.title || s.name
+                      })) || []
+                    }))
+                  });
                 }
               });
             }
