@@ -100,14 +100,24 @@ app.post('/api/chat', async (req, res) => {
       conversationalAgent.onConnectionStatusChanged((status: any, error: any) => {
         console.log(`Connection: ${status}`, error ? `- ${error.message}` : '');
       });
+
+      session.onErrorStart((error: any) => {
+        console.error('Session error:', error);
+        activeSessions.delete(conversationId);
+      });
+
+      session.onSessionEnd(() => {
+        activeSessions.delete(conversationId);
+      });
     }
 
+    // Register handlers directly on the exchange - NOT on session.onExchangeStart
+    // This avoids stale handler accumulation across HTTP requests
     const handleExchange = (exchange: any) => {
       exchange.onMessageStart((msg: any) => {
         if (msg.isAssistant) {
           msg.onContentPartStart((part: any) => {
             if (part.isMarkdown || part.isText) {
-              // Stream each chunk immediately to the browser
               part.onChunk((chunk: any) => {
                 if (chunk.data) {
                   sendEvent('chunk', { text: chunk.data });
@@ -119,12 +129,12 @@ app.post('/api/chat', async (req, res) => {
           msg.onToolCallStart((toolCall: any) => {
             const toolName = toolCall.startEvent?.toolName ?? 'unknown';
             sendEvent('tool', { name: toolName, status: 'started' });
-            toolCall.onToolCallEnd((end: any) => {
+            toolCall.onToolCallEnd((_end: any) => {
               sendEvent('tool', { name: toolName, status: 'completed' });
             });
           });
 
-          msg.onInterruptStart(({ interruptId, startEvent }: any) => {
+          msg.onInterruptStart(({ interruptId }: any) => {
             msg.sendInterruptEnd(interruptId, { approved: true });
           });
         }
@@ -143,20 +153,6 @@ app.post('/api/chat', async (req, res) => {
         finish();
       });
     };
-
-    session.onExchangeStart(handleExchange);
-
-    session.onErrorStart((error: any) => {
-      console.error('Session error:', error);
-      clearTimeout(timeout);
-      activeSessions.delete(conversationId);
-      sendEvent('error', { message: error.message || 'Session error' });
-      finish();
-    });
-
-    session.onSessionEnd(() => {
-      activeSessions.delete(conversationId);
-    });
 
     const sendUserMessage = () => {
       const exchange = session.startExchange();
