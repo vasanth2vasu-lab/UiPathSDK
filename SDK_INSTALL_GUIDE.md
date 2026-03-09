@@ -189,6 +189,46 @@ npx ts-node test-auth.ts
 | Cases | `@uipath/uipath-typescript/cases` | Manage Maestro case management processes |
 | CaseInstances | `@uipath/uipath-typescript/cases` | Manage running case instances |
 
+## Retrieving Folders
+
+The SDK does not include a dedicated Folders service. Use the Orchestrator REST API with the SDK's authentication token to retrieve all folders in your org:
+
+```typescript
+import 'dotenv/config';
+import { UiPath } from '@uipath/uipath-typescript/core';
+
+async function getAllFolders() {
+  const sdk = new UiPath({
+    baseUrl: process.env.UIPATH_BASE_URL!,
+    orgName: process.env.UIPATH_ORG_NAME!,
+    tenantName: process.env.UIPATH_TENANT_NAME!,
+    secret: process.env.UIPATH_SECRET!
+  });
+
+  const token = sdk.getToken();
+  const url = `${process.env.UIPATH_BASE_URL}/${process.env.UIPATH_ORG_NAME}/${process.env.UIPATH_TENANT_NAME}/orchestrator_/odata/Folders`;
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  const data = await response.json();
+
+  for (const folder of data.value) {
+    console.log(`ID: ${folder.Id} | Name: ${folder.DisplayName} | Path: ${folder.FullyQualifiedName}`);
+  }
+
+  return data.value;
+}
+
+getAllFolders();
+```
+
+Use the returned `Id` values as the `folderId` parameter required by services like Assets, Tasks, Processes, Queues, and Buckets.
+
 ## Pagination
 
 All `getAll()` methods support optional pagination:
