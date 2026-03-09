@@ -115,6 +115,7 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
+      scroll-behavior: smooth;
     }
 
     .message {
@@ -228,6 +229,22 @@
   <script>
     let currentAgent = null;
     let conversationId = null;
+    let autoScroll = true;
+
+    // Track if user scrolled up manually — pause auto-scroll
+    const messagesEl = document.getElementById('messages');
+    messagesEl.addEventListener('scroll', () => {
+      const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+      autoScroll = atBottom;
+    });
+
+    function scrollToBottom(smooth = true) {
+      if (!autoScroll) return;
+      messagesEl.scrollTo({
+        top: messagesEl.scrollHeight,
+        behavior: smooth ? 'smooth' : 'instant'
+      })
+    }
 
     // Load agents on page load
     async function loadAgents() {
@@ -342,16 +359,14 @@
                   }
                   currentText += data.text;
                   assistantEl.textContent = currentText;
-                  document.getElementById('messages').scrollTop =
-                    document.getElementById('messages').scrollHeight;
+                  scrollToBottom();
                 } else if (eventType === 'tool') {
                   if (data.status === 'started') {
                     toolIndicator = document.createElement('div');
                     toolIndicator.className = 'message assistant typing';
                     toolIndicator.textContent = `Using ${data.name}...`;
                     document.getElementById('messages').appendChild(toolIndicator);
-                    document.getElementById('messages').scrollTop =
-                      document.getElementById('messages').scrollHeight;
+                    scrollToBottom();
                   } else if (data.status === 'completed' && toolIndicator) {
                     toolIndicator.remove();
                     toolIndicator = null;
@@ -389,7 +404,8 @@
       div.className = 'message ' + className;
       div.textContent = text;
       messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
+      autoScroll = true;
+      scrollToBottom(false);
       return div;
     }
 
