@@ -469,6 +469,8 @@
 
     // Session cache: keyed by agent index, stores { conversationId, agentDetail, messagesHtml, scrollTop }
     const agentSessions = new Map();
+    // AbortController for in-flight chat requests
+    let chatAbortController = null;
 
     const messagesEl = document.getElementById('messages');
     messagesEl.addEventListener('scroll', () => {
@@ -508,6 +510,18 @@
     // ─── Save current session to cache ───
     function saveCurrentSession() {
       if (currentAgentIndex < 0) return;
+      // Abort any in-flight chat request for the outgoing agent
+      if (chatAbortController) {
+        chatAbortController.abort();
+        chatAbortController = null;
+      }
+      // Clean up typing/tool indicators before saving
+      removeTypingIndicator();
+      removeToolIndicator();
+      // Re-enable input in case we were mid-stream
+      document.getElementById('send-btn').disabled = false;
+      document.getElementById('message-input').disabled = false;
+
       agentSessions.set(currentAgentIndex, {
         conversationId,
         agentDetail,
@@ -688,11 +702,19 @@
       let citations = [];
       let firstChunk = true;
 
+      // Track which agent this request belongs to
+      const requestAgentIndex = currentAgentIndex;
+      // Create abort controller for this request
+      if (chatAbortController) chatAbortController.abort();
+      chatAbortController = new AbortController();
+      const signal = chatAbortController.signal;
+
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId, message: text })
+          body: JSON.stringify({ conversationId, message: text }),
+          signal
         });
 
         const reader = res.body.getReader();
@@ -709,6 +731,8 @@
 
           let eventType = '';
           for (const line of lines) {
+            // Skip if user switched to a different agent
+            if (currentAgentIndex !== requestAgentIndex) break;
             if (line.startsWith('event: ')) {
               eventType = line.slice(7);
             } else if (line.startsWith('data: ') && eventType) {
@@ -782,17 +806,23 @@
           addMessage('No response from agent. Please try again.', 'assistant');
         }
       } catch (err) {
-        removeTypingIndicator();
-        removeToolIndicator();
-        addMessage('Failed to get response. Please try again.', 'assistant');
+        // Ignore abort errors from switching agents
+        if (err.name === 'AbortError') return;
+        if (currentAgentIndex === requestAgentIndex) {
+          removeTypingIndicator();
+          removeToolIndicator();
+          addMessage('Failed to get response. Please try again.', 'assistant');
+        }
       }
 
-      removeTypingIndicator();
-      removeToolIndicator();
-
-      sendBtn.disabled = false;
-      input.disabled = false;
-      input.focus();
+      // Only touch UI if we're still on the same agent
+      if (currentAgentIndex === requestAgentIndex) {
+        removeTypingIndicator();
+        removeToolIndicator();
+        sendBtn.disabled = false;
+        input.disabled = false;
+        input.focus();
+      }
     }
 
     document.getElementById('message-input').addEventListener('keydown', (e) => {
