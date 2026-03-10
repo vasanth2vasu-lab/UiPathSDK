@@ -2,6 +2,7 @@ const axios = require('axios');
 
 let sfAuth = null; // { access_token, instance_url }
 
+// Try OAuth Username-Password flow first, fall back to SOAP login
 async function authenticate() {
   const loginUrl = process.env.SF_LOGIN_URL || 'https://login.salesforce.com';
   const username = process.env.SF_USERNAME;
@@ -12,13 +13,26 @@ async function authenticate() {
     return null;
   }
 
+  // Attempt 1: OAuth Username-Password flow
+  const oauthResult = await authenticateOAuth(loginUrl, username, password);
+  if (oauthResult) return oauthResult;
+
+  // Attempt 2: SOAP login (works when OAuth password flow is disabled)
+  console.log('OAuth password flow failed. Trying SOAP login...');
+  const soapResult = await authenticateSOAP(loginUrl, username, password);
+  if (soapResult) return soapResult;
+
+  console.error('All Salesforce authentication methods failed.');
+  return null;
+}
+
+async function authenticateOAuth(loginUrl, username, password) {
   const params = new URLSearchParams({
     grant_type: 'password',
     username,
     password,
   });
 
-  // Include client_id and client_secret only if provided
   if (process.env.SF_CLIENT_ID) {
     params.append('client_id', process.env.SF_CLIENT_ID);
     params.append('client_secret', process.env.SF_CLIENT_SECRET || '');
@@ -33,11 +47,59 @@ async function authenticate() {
       access_token: response.data.access_token,
       instance_url: response.data.instance_url,
     };
-    console.log(`Salesforce authenticated. Instance: ${sfAuth.instance_url}`);
+    console.log(`Salesforce authenticated (OAuth). Instance: ${sfAuth.instance_url}`);
     return sfAuth;
   } catch (err) {
-    const msg = err.response?.data?.error_description || err.message;
-    console.error(`Salesforce authentication failed: ${msg}`);
+    const msg = err.response?.data?.error_description || err.response?.data?.error || err.message;
+    console.warn(`Salesforce OAuth login failed: ${msg}`);
+    return null;
+  }
+}
+
+async function authenticateSOAP(loginUrl, username, password) {
+  const soapBody = `<?xml version="1.0" encoding="utf-8" ?>
+<env:Envelope xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:env="http://schemas.xmlsoap.org/soap/envelope/">
+  <env:Body>
+    <n1:login xmlns:n1="urn:partner.soap.sforce.com">
+      <n1:username>${username}</n1:username>
+      <n1:password>${password}</n1:password>
+    </n1:login>
+  </env:Body>
+</env:Envelope>`;
+
+  try {
+    const response = await axios.post(`${loginUrl}/services/Soap/u/58.0`, soapBody, {
+      headers: {
+        'Content-Type': 'text/xml',
+        'SOAPAction': 'login',
+      },
+    });
+
+    const body = response.data;
+    // Parse session ID and server URL from SOAP response
+    const sessionMatch = body.match(/<sessionId>([^<]+)<\/sessionId>/);
+    const serverMatch = body.match(/<serverUrl>([^<]+)<\/serverUrl>/);
+
+    if (sessionMatch && serverMatch) {
+      const serverUrl = serverMatch[1];
+      // Extract instance URL from server URL (e.g., https://na1.salesforce.com)
+      const instanceUrl = serverUrl.match(/(https?:\/\/[^/]+)/)?.[1];
+
+      sfAuth = {
+        access_token: sessionMatch[1],
+        instance_url: instanceUrl,
+      };
+      console.log(`Salesforce authenticated (SOAP). Instance: ${sfAuth.instance_url}`);
+      return sfAuth;
+    }
+
+    console.warn('SOAP login response did not contain expected fields.');
+    return null;
+  } catch (err) {
+    const msg = err.response?.data?.match?.(/<faultstring>([^<]+)<\/faultstring>/)?.[1] || err.message;
+    console.error(`Salesforce SOAP login failed: ${msg}`);
     sfAuth = null;
     return null;
   }
