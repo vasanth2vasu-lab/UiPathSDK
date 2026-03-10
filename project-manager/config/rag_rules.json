@@ -1,0 +1,23 @@
+{
+  "red": {
+    "overdue": true,
+    "low_completion_short_deadline": { "completion_below": 25, "days_remaining_below": 14 },
+    "over_budget_pct": 110,
+    "status_keywords": ["blocked", "on hold", "cancelled", "failed", "escalated", "critical"],
+    "past_due": true,
+    "high_priority_behind": { "completion_below": 30, "days_remaining_below": 30 }
+  },
+  "amber": {
+    "short_deadline_low_completion": { "days_remaining_below": 14, "completion_below": 75 },
+    "budget_utilization_range": { "min": 90, "max": 110 },
+    "behind_schedule_pct": 50,
+    "status_keywords": ["at risk", "delayed", "in review", "pending", "stalled", "slow"],
+    "stale_days": 30
+  },
+  "green": {
+    "progress_tolerance_pct": 10,
+    "budget_utilization_max": 90,
+    "days_remaining_min": 14,
+    "status_keywords": ["on track", "active", "in progress", "healthy", "complete", "done"]
+  }
+}
