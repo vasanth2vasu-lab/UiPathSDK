@@ -1,7 +1,9 @@
 import { webcrypto } from 'node:crypto';
-if (!globalThis.crypto) {
-  (globalThis as any).crypto = webcrypto;
-}
+Object.defineProperty(globalThis, 'crypto', {
+  value: webcrypto,
+  writable: true,
+  configurable: true,
+});
 
 import 'dotenv/config';
 import express from 'express';
