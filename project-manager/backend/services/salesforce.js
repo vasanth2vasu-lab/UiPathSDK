@@ -402,12 +402,22 @@ function mapSFRecord(rec, isCustomObject) {
   };
 }
 
+// Manually set a session token (for SSO orgs without Connected App access)
+function setManualToken(sessionId, instanceUrl) {
+  sfAuth = {
+    access_token: sessionId,
+    instance_url: instanceUrl.replace(/\/$/, ''),
+  };
+  saveTokens();
+  console.log(`Salesforce token set manually. Instance: ${sfAuth.instance_url}`);
+}
+
 function getConnectionStatus() {
   return {
     connected: !!sfAuth,
     instance_url: sfAuth?.instance_url || null,
-    configured: !!(process.env.SF_USERNAME || process.env.SF_CLIENT_ID),
+    configured: !!(process.env.SF_USERNAME || process.env.SF_CLIENT_ID || sfAuth),
   };
 }
 
-module.exports = { authenticate, authenticateBrowser, fetchProjects, getConnectionStatus, getLoginUrl, query };
+module.exports = { authenticate, authenticateBrowser, fetchProjects, getConnectionStatus, getLoginUrl, setManualToken, query };

@@ -64,6 +64,23 @@ app.get('/api/sf/status', (req, res) => {
   res.json(getConnectionStatus());
 });
 
+// Manual session token input (for SSO orgs without Connected App access)
+app.get('/api/sf/token', async (req, res) => {
+  const { session_id, instance_url } = req.query;
+  if (!session_id || !instance_url) {
+    return res.status(400).json({
+      error: 'Missing parameters',
+      usage: '/api/sf/token?session_id=YOUR_SESSION_ID&instance_url=https://your-instance.salesforce.com',
+      instructions: 'To get your session ID: Open Salesforce → Developer Console (or press F12 → Console tab) → paste: document.cookie.match(/sid=([^;]+)/)?.[1]',
+    });
+  }
+  const { setManualToken } = require('./services/salesforce');
+  setManualToken(session_id, instance_url);
+  await refreshAllData();
+  const status = getConnectionStatus();
+  res.json({ message: 'Token set successfully', ...status });
+});
+
 // Refresh endpoint with rate limiting
 let lastRefreshRequest = 0;
 app.get('/api/refresh', async (req, res) => {
