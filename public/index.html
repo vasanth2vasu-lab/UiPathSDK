@@ -502,10 +502,36 @@
     let autoScroll = true;
     let agentDetail = null;
 
-    // Session cache: keyed by agent index
+    // Session cache: keyed by agent ID (persistent via localStorage)
     const agentSessions = new Map();
     // AbortController for in-flight chat requests
     let chatAbortController = null;
+
+    // ─── localStorage helpers ───
+    const STORAGE_KEY = 'uipath_agent_sessions';
+
+    function loadSessionsFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        for (const [key, val] of Object.entries(data)) {
+          agentSessions.set(key, val);
+        }
+      } catch (_) {}
+    }
+
+    function saveSessionsToStorage() {
+      try {
+        const data = {};
+        for (const [key, val] of agentSessions.entries()) {
+          data[key] = val;
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (_) {}
+    }
+
+    loadSessionsFromStorage();
 
     const messagesEl = document.getElementById('messages');
     messagesEl.addEventListener('scroll', () => {
@@ -542,7 +568,7 @@
         const initials = agent.name.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase();
         const desc = agent.description || 'Ready to assist';
         const active = idx === currentAgentIndex ? ' active' : '';
-        const hasSession = agentSessions.has(idx) ? ' has-session' : '';
+        const hasSession = agentSessions.has(String(agent.id)) ? ' has-session' : '';
         return `
           <div class="agent-item${active}${hasSession}" onclick="openAgent(${idx})" title="${agent.name}">
             <div class="agent-dot" style="background:${color}">${initials}</div>
@@ -566,7 +592,7 @@
 
     // ─── Save current session to cache ───
     function saveCurrentSession() {
-      if (currentAgentIndex < 0) return;
+      if (currentAgentIndex < 0 || !currentAgent) return;
       // Abort any in-flight chat request for the outgoing agent
       if (chatAbortController) {
         chatAbortController.abort();
@@ -579,12 +605,14 @@
       document.getElementById('send-btn').disabled = false;
       document.getElementById('message-input').disabled = false;
 
-      agentSessions.set(currentAgentIndex, {
+      const key = String(currentAgent.id);
+      agentSessions.set(key, {
         conversationId,
         agentDetail,
         messagesHtml: messagesEl.innerHTML,
         scrollTop: messagesEl.scrollTop
       });
+      saveSessionsToStorage();
     }
 
     // ─── Open Agent ───
@@ -616,8 +644,9 @@
       document.getElementById('chat-topbar-dot').textContent = initials;
       document.getElementById('chat-topbar-name').textContent = currentAgent.name;
 
-      // Check for cached session
-      const cached = agentSessions.get(index);
+      // Check for cached session (keyed by agent ID)
+      const agentKey = String(currentAgent.id);
+      const cached = agentSessions.get(agentKey);
       if (cached && cached.conversationId) {
         conversationId = cached.conversationId;
         agentDetail = cached.agentDetail;
@@ -634,6 +663,7 @@
       agentDetail = null;
       conversationId = null;
 
+      const openingIndex = currentAgentIndex; // guard against race condition
       document.getElementById('chat-topbar-status').innerHTML = '<div class="mini-spinner" style="width:10px;height:10px;border-width:1.5px;"></div> Connecting...';
       messagesEl.innerHTML = '<div class="loading-center"><div class="mini-spinner"></div> Starting conversation...</div>';
 
@@ -646,6 +676,9 @@
             body: JSON.stringify({ agentId: currentAgent.id, folderId: currentAgent.folderId, label: 'Web Chat' })
           }).then(r => r.json())
         ]);
+
+        // User switched agents while we were waiting — discard results
+        if (currentAgentIndex !== openingIndex) return;
 
         agentDetail = detailRes;
         conversationId = convRes.conversationId;
@@ -884,6 +917,16 @@
         sendBtn.disabled = false;
         input.disabled = false;
         input.focus();
+        // Auto-save conversation to localStorage after each exchange
+        if (currentAgent) {
+          agentSessions.set(String(currentAgent.id), {
+            conversationId,
+            agentDetail,
+            messagesHtml: messagesEl.innerHTML,
+            scrollTop: messagesEl.scrollTop
+          });
+          saveSessionsToStorage();
+        }
       }
     }
 
