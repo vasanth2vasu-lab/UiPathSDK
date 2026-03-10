@@ -1,5 +1,6 @@
 node_modules/
 .env
+.sf_token.json
 dist/
 build/
 *.log

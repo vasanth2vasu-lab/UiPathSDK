@@ -6,6 +6,7 @@ const path = require('path');
 const projectRoutes = require('./routes/projects');
 const summaryRoutes = require('./routes/summary');
 const { refreshAllData, getCachedData } = require('./services/data_merger');
+const { getLoginUrl, authenticateBrowser, getConnectionStatus } = require('./services/salesforce');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -41,6 +42,26 @@ app.use('/api/owners', (req, res) => {
   const { projects } = getCachedData();
   const owners = [...new Set(projects.map(p => p.owner).filter(Boolean))].sort();
   res.json(owners);
+});
+
+// Salesforce browser login (for SSO orgs)
+app.get('/api/sf/login', async (req, res) => {
+  const loginUrl = getLoginUrl();
+  if (!loginUrl) {
+    return res.status(400).json({ error: 'SF_CLIENT_ID not set in .env. Create a Connected App in Salesforce and add the client ID.' });
+  }
+  // Start the browser OAuth callback listener
+  authenticateBrowser(process.env.SF_LOGIN_URL || 'https://login.salesforce.com').then(async (result) => {
+    if (result) {
+      await refreshAllData();
+      console.log('Salesforce connected via browser. Data refreshed.');
+    }
+  });
+  res.json({ login_url: loginUrl, message: 'Open the login_url in your browser to authenticate via SSO.' });
+});
+
+app.get('/api/sf/status', (req, res) => {
+  res.json(getConnectionStatus());
 });
 
 // Refresh endpoint with rate limiting

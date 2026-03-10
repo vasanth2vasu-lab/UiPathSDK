@@ -1,28 +1,88 @@
 const axios = require('axios');
+const http = require('http');
+const url = require('url');
+const fs = require('fs');
+const path = require('path');
 
-let sfAuth = null; // { access_token, instance_url }
+let sfAuth = null; // { access_token, instance_url, refresh_token }
+const TOKEN_FILE = path.join(__dirname, '../../.sf_token.json');
 
-// Try OAuth Username-Password flow first, fall back to SOAP login
+// Load saved tokens from disk (persists across server restarts)
+function loadSavedTokens() {
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf-8'));
+      if (data.access_token && data.instance_url) {
+        sfAuth = data;
+        console.log(`Loaded saved Salesforce tokens. Instance: ${sfAuth.instance_url}`);
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function saveTokens() {
+  try {
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(sfAuth, null, 2));
+  } catch {
+    // ignore
+  }
+}
+
+// Main authenticate function — tries multiple methods
 async function authenticate() {
   const loginUrl = process.env.SF_LOGIN_URL || 'https://login.salesforce.com';
   const username = process.env.SF_USERNAME;
   const password = (process.env.SF_PASSWORD || '') + (process.env.SF_SECURITY_TOKEN || '');
 
-  if (!username || !password) {
-    console.warn('Salesforce credentials not configured. Skipping SF integration.');
-    return null;
+  // Check for saved tokens first
+  if (loadSavedTokens()) {
+    // Verify the token still works
+    try {
+      await axios.get(`${sfAuth.instance_url}/services/data/v58.0/`, {
+        headers: { Authorization: `Bearer ${sfAuth.access_token}` },
+      });
+      console.log('Saved Salesforce token is still valid.');
+      return sfAuth;
+    } catch {
+      console.log('Saved token expired. Re-authenticating...');
+      sfAuth = null;
+    }
   }
 
-  // Attempt 1: OAuth Username-Password flow
-  const oauthResult = await authenticateOAuth(loginUrl, username, password);
-  if (oauthResult) return oauthResult;
+  // Try refresh token if available
+  if (sfAuth?.refresh_token && process.env.SF_CLIENT_ID) {
+    const refreshResult = await refreshAccessToken(loginUrl);
+    if (refreshResult) return refreshResult;
+  }
 
-  // Attempt 2: SOAP login (works when OAuth password flow is disabled)
-  console.log('OAuth password flow failed. Trying SOAP login...');
-  const soapResult = await authenticateSOAP(loginUrl, username, password);
-  if (soapResult) return soapResult;
+  // Attempt 1: OAuth Username-Password flow (if credentials provided)
+  if (username && password) {
+    const oauthResult = await authenticateOAuth(loginUrl, username, password);
+    if (oauthResult) return oauthResult;
+
+    // Attempt 2: SOAP login
+    console.log('OAuth password flow failed. Trying SOAP login...');
+    const soapResult = await authenticateSOAP(loginUrl, username, password);
+    if (soapResult) return soapResult;
+  }
+
+  // Attempt 3: Browser-based OAuth (for SSO/Azure AD)
+  if (process.env.SF_CLIENT_ID) {
+    console.log('Password-based auth failed. Starting browser OAuth flow...');
+    console.log('==> A browser window will open for you to log in via SSO <==');
+    const browserResult = await authenticateBrowser(loginUrl);
+    if (browserResult) return browserResult;
+  }
 
   console.error('All Salesforce authentication methods failed.');
+  if (!process.env.SF_CLIENT_ID) {
+    console.error('Tip: For SSO orgs, set SF_CLIENT_ID and SF_CLIENT_SECRET in .env');
+    console.error('Then visit http://localhost:3001/api/sf/login to authenticate via browser.');
+  }
   return null;
 }
 
@@ -46,7 +106,9 @@ async function authenticateOAuth(loginUrl, username, password) {
     sfAuth = {
       access_token: response.data.access_token,
       instance_url: response.data.instance_url,
+      refresh_token: response.data.refresh_token || null,
     };
+    saveTokens();
     console.log(`Salesforce authenticated (OAuth). Instance: ${sfAuth.instance_url}`);
     return sfAuth;
   } catch (err) {
@@ -78,19 +140,18 @@ async function authenticateSOAP(loginUrl, username, password) {
     });
 
     const body = response.data;
-    // Parse session ID and server URL from SOAP response
     const sessionMatch = body.match(/<sessionId>([^<]+)<\/sessionId>/);
     const serverMatch = body.match(/<serverUrl>([^<]+)<\/serverUrl>/);
 
     if (sessionMatch && serverMatch) {
       const serverUrl = serverMatch[1];
-      // Extract instance URL from server URL (e.g., https://na1.salesforce.com)
       const instanceUrl = serverUrl.match(/(https?:\/\/[^/]+)/)?.[1];
 
       sfAuth = {
         access_token: sessionMatch[1],
         instance_url: instanceUrl,
       };
+      saveTokens();
       console.log(`Salesforce authenticated (SOAP). Instance: ${sfAuth.instance_url}`);
       return sfAuth;
     }
@@ -99,10 +160,115 @@ async function authenticateSOAP(loginUrl, username, password) {
     return null;
   } catch (err) {
     const msg = err.response?.data?.match?.(/<faultstring>([^<]+)<\/faultstring>/)?.[1] || err.message;
-    console.error(`Salesforce SOAP login failed: ${msg}`);
+    console.warn(`Salesforce SOAP login failed: ${msg}`);
     sfAuth = null;
     return null;
   }
+}
+
+// Browser-based OAuth flow for SSO orgs
+function authenticateBrowser(loginUrl) {
+  return new Promise((resolve) => {
+    const clientId = process.env.SF_CLIENT_ID;
+    const callbackPort = 3456;
+    const redirectUri = `http://localhost:${callbackPort}/callback`;
+
+    // Start a temporary local server to receive the OAuth callback
+    const server = http.createServer(async (req, res) => {
+      const parsed = url.parse(req.url, true);
+
+      if (parsed.pathname === '/callback' && parsed.query.code) {
+        const code = parsed.query.code;
+
+        try {
+          // Exchange authorization code for tokens
+          const params = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            client_id: clientId,
+            client_secret: process.env.SF_CLIENT_SECRET || '',
+            redirect_uri: redirectUri,
+          });
+
+          const response = await axios.post(`${loginUrl}/services/oauth2/token`, params.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          });
+
+          sfAuth = {
+            access_token: response.data.access_token,
+            instance_url: response.data.instance_url,
+            refresh_token: response.data.refresh_token || null,
+          };
+          saveTokens();
+          console.log(`Salesforce authenticated (Browser OAuth). Instance: ${sfAuth.instance_url}`);
+
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end('<html><body><h2>Salesforce Connected!</h2><p>You can close this tab and return to the dashboard.</p><script>setTimeout(()=>window.close(),2000)</script></body></html>');
+
+          server.close();
+          resolve(sfAuth);
+        } catch (err) {
+          const msg = err.response?.data?.error_description || err.message;
+          console.error(`Browser OAuth token exchange failed: ${msg}`);
+          res.writeHead(500, { 'Content-Type': 'text/html' });
+          res.end(`<html><body><h2>Authentication Failed</h2><p>${msg}</p></body></html>`);
+          server.close();
+          resolve(null);
+        }
+      }
+    });
+
+    server.listen(callbackPort, () => {
+      const authUrl = `${loginUrl}/services/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=api+refresh_token`;
+      console.log(`\n========================================`);
+      console.log(`Open this URL in your browser to connect Salesforce:`);
+      console.log(`\n${authUrl}\n`);
+      console.log(`========================================\n`);
+
+      // Try to open browser automatically
+      const open = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+      require('child_process').exec(`${open} "${authUrl}"`);
+    });
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      server.close();
+      resolve(null);
+    }, 300000);
+  });
+}
+
+async function refreshAccessToken(loginUrl) {
+  try {
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: sfAuth.refresh_token,
+      client_id: process.env.SF_CLIENT_ID,
+      client_secret: process.env.SF_CLIENT_SECRET || '',
+    });
+
+    const response = await axios.post(`${loginUrl}/services/oauth2/token`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+
+    sfAuth.access_token = response.data.access_token;
+    sfAuth.instance_url = response.data.instance_url;
+    saveTokens();
+    console.log('Salesforce token refreshed successfully.');
+    return sfAuth;
+  } catch (err) {
+    console.warn(`Token refresh failed: ${err.response?.data?.error_description || err.message}`);
+    return null;
+  }
+}
+
+// Manual browser login route (call from Express app)
+function getLoginUrl() {
+  const loginUrl = process.env.SF_LOGIN_URL || 'https://login.salesforce.com';
+  const clientId = process.env.SF_CLIENT_ID;
+  if (!clientId) return null;
+  const redirectUri = `http://localhost:3456/callback`;
+  return `${loginUrl}/services/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=api+refresh_token`;
 }
 
 async function query(soql) {
@@ -111,22 +277,21 @@ async function query(soql) {
     if (!auth) return null;
   }
 
-  const url = `${sfAuth.instance_url}/services/data/v58.0/query`;
+  const queryUrl = `${sfAuth.instance_url}/services/data/v58.0/query`;
 
   try {
-    const response = await axios.get(url, {
+    const response = await axios.get(queryUrl, {
       params: { q: soql },
       headers: { Authorization: `Bearer ${sfAuth.access_token}` },
     });
     return response.data;
   } catch (err) {
     if (err.response?.status === 401) {
-      // Token expired — re-authenticate and retry once
       console.log('Salesforce token expired, re-authenticating...');
       const auth = await authenticate();
       if (!auth) return null;
 
-      const retry = await axios.get(url, {
+      const retry = await axios.get(queryUrl, {
         params: { q: soql },
         headers: { Authorization: `Bearer ${sfAuth.access_token}` },
       });
@@ -155,7 +320,7 @@ async function describeObject(objectName) {
 }
 
 async function fetchProjects() {
-  if (!sfAuth && !process.env.SF_USERNAME) {
+  if (!sfAuth && !process.env.SF_USERNAME && !process.env.SF_CLIENT_ID) {
     return { projects: [], connected: false, error: 'Salesforce not configured' };
   }
 
@@ -241,8 +406,8 @@ function getConnectionStatus() {
   return {
     connected: !!sfAuth,
     instance_url: sfAuth?.instance_url || null,
-    configured: !!process.env.SF_USERNAME,
+    configured: !!(process.env.SF_USERNAME || process.env.SF_CLIENT_ID),
   };
 }
 
-module.exports = { authenticate, fetchProjects, getConnectionStatus, query };
+module.exports = { authenticate, authenticateBrowser, fetchProjects, getConnectionStatus, getLoginUrl, query };
