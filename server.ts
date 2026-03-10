@@ -10,6 +10,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Validate environment variables
+const requiredEnv = ['UIPATH_BASE_URL', 'UIPATH_ORG_NAME', 'UIPATH_TENANT_NAME', 'UIPATH_SECRET'];
+const missing = requiredEnv.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`\n❌ Missing required environment variables in .env file:\n   ${missing.join(', ')}\n`);
+  console.error('Create a .env file with:\n');
+  console.error('   UIPATH_BASE_URL=https://cloud.uipath.com');
+  console.error('   UIPATH_ORG_NAME=your-org-name');
+  console.error('   UIPATH_TENANT_NAME=your-tenant-name');
+  console.error('   UIPATH_SECRET=your-personal-access-token\n');
+  process.exit(1);
+}
+
 // Initialize SDK
 const sdk = new UiPath({
   baseUrl: process.env.UIPATH_BASE_URL!,
