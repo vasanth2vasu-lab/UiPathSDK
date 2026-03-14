@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UiPath Agent Hub</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
   <style>
     :root {
       --orange: #fa4616;
@@ -481,10 +482,41 @@
       marked.setOptions({ breaks: true, gfm: true });
     }
 
+    // Configure DOMPurify to allow safe HTML from markdown
+    const PURIFY_CONFIG = {
+      ALLOWED_TAGS: ['p','br','strong','em','b','i','u','a','code','pre','blockquote',
+        'ul','ol','li','h1','h2','h3','h4','h5','h6','table','thead','tbody',
+        'tr','th','td','hr','span','div','img','sup','sub','del','s'],
+      ALLOWED_ATTR: ['href','target','rel','src','alt','class','style'],
+      ALLOW_DATA_ATTR: false,
+      ADD_ATTR: ['target'],
+    };
+
+    function sanitizeHtml(html) {
+      if (typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(html, PURIFY_CONFIG);
+      }
+      return html;
+    }
+
     function renderMarkdown(text) {
       if (!text) return '';
-      if (typeof marked !== 'undefined') return marked.parse(text);
-      return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      let html;
+      if (typeof marked !== 'undefined') {
+        html = marked.parse(text);
+      } else {
+        html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      }
+      return sanitizeHtml(html);
+    }
+
+    // ─── API key for authenticated requests ───
+    // Set via: localStorage.setItem('uipath_api_key', 'your-key')
+    function getApiHeaders(extra = {}) {
+      const headers = { ...extra };
+      const apiKey = localStorage.getItem('uipath_api_key');
+      if (apiKey) headers['x-api-key'] = apiKey;
+      return headers;
     }
 
     function formatTime(d) {
@@ -546,7 +578,7 @@
     // ─── Load + Render Sidebar ───
     async function loadAgents() {
       try {
-        const res = await fetch('/api/agents');
+        const res = await fetch('/api/agents', { headers: getApiHeaders() });
         allAgents = await res.json();
         renderAgentList(allAgents);
       } catch (err) {
@@ -669,10 +701,10 @@
 
       try {
         const [detailRes, convRes] = await Promise.all([
-          fetch('/api/agents/' + currentAgent.id).then(r => r.json()).catch(() => null),
+          fetch('/api/agents/' + currentAgent.id, { headers: getApiHeaders() }).then(r => r.json()).catch(() => null),
           fetch('/api/conversations', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getApiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ agentId: currentAgent.id, folderId: currentAgent.folderId, label: 'Web Chat' })
           }).then(r => r.json())
         ]);
@@ -763,11 +795,17 @@
       if (el) el.remove();
     }
 
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
     function showToolIndicator(name) {
       const el = document.createElement('div');
       el.className = 'tool-indicator';
       el.id = 'tool-active';
-      el.innerHTML = '<div class="tool-spinner"></div> Using <strong>' + name + '</strong>...';
+      el.innerHTML = '<div class="tool-spinner"></div> Using <strong>' + escapeHtml(name) + '</strong>...';
       messagesEl.appendChild(el);
       scrollToBottom();
     }
@@ -807,7 +845,7 @@
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ conversationId, message: text }),
           signal
         });
@@ -864,7 +902,7 @@
                   removeTypingIndicator();
                   removeToolIndicator();
                   if (!assistantEl) assistantEl = addMessage('', 'assistant');
-                  assistantEl.innerHTML = '<span style="color:#c00">Error: ' + data.message + '</span>';
+                  assistantEl.innerHTML = '<span style="color:#c00">Error: ' + escapeHtml(data.message || 'Unknown error') + '</span>';
                 }
               } catch (e) {}
               eventType = '';
@@ -886,7 +924,7 @@
                 a.className = 'citation-link';
                 a.href = url;
                 a.target = '_blank';
-                a.rel = 'noopener';
+                a.rel = 'noopener noreferrer';
                 a.textContent = title;
                 bar.appendChild(a);
               }
