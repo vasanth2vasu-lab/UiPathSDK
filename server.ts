@@ -178,7 +178,108 @@ function cleanupStaleSessions(): void {
 // Run cleanup every 5 minutes
 setInterval(cleanupStaleSessions, 5 * 60 * 1000);
 
+// ─── 12. Agent routing configuration ───
+// Maps sub-agent display names (as returned by master agent) to their UiPath agent IDs.
+// Configure these with your actual agent IDs from `npx tsx list-agents.ts`.
+interface AgentRouteConfig {
+  masterAgentId: string;           // UiPath agent ID of the master/router agent
+  routes: Record<string, string>;  // mapping: lowercase route name → sub-agent ID
+  fallbackAgentId?: string;        // fallback agent ID if no route matches
+}
+
+// Load routing config from environment or use defaults.
+// Set MASTER_AGENT_ID, AGENT_ROUTES (JSON), and FALLBACK_AGENT_ID in .env
+const agentRouteConfig: AgentRouteConfig = {
+  masterAgentId: process.env.MASTER_AGENT_ID || '',
+  routes: process.env.AGENT_ROUTES ? JSON.parse(process.env.AGENT_ROUTES) : {},
+  fallbackAgentId: process.env.FALLBACK_AGENT_ID || '',
+};
+
+/**
+ * Sends a message to the master agent and collects the full response (non-streaming).
+ * The master agent should be configured to respond with JSON: {"targetAgent": "agent-name"}
+ */
+async function getMasterAgentRouting(message: string): Promise<{ targetAgent: string; fullResponse: string }> {
+  const agents = await conversationalAgent.getAll();
+  const masterAgent = agents.find((a: any) => String(a.id) === agentRouteConfig.masterAgentId);
+  if (!masterAgent) {
+    throw new Error('Master agent not found. Set MASTER_AGENT_ID in .env');
+  }
+
+  const conversation = await masterAgent.conversations.create({ label: 'Routing' });
+  const session = conversation.startSession();
+
+  return new Promise((resolve, reject) => {
+    const routingTimeout = setTimeout(() => {
+      reject(new Error('Master agent routing timed out after 30s'));
+    }, 30000);
+
+    session.onSessionStarted(() => {
+      const exchange = session.startExchange();
+      let fullResponse = '';
+
+      exchange.onMessageStart((msg: any) => {
+        if (msg.isAssistant) {
+          msg.onContentPartStart((part: any) => {
+            if (part.isMarkdown || part.isText || part.isHtml) {
+              part.onChunk((chunk: any) => {
+                if (chunk.data) fullResponse += chunk.data;
+              });
+            }
+          });
+        }
+      });
+
+      exchange.onExchangeEnd(() => {
+        clearTimeout(routingTimeout);
+        session.end?.();
+
+        // Try to parse JSON from the response
+        let targetAgent = '';
+        try {
+          // Look for JSON anywhere in the response
+          const jsonMatch = fullResponse.match(/\{[\s\S]*?"targetAgent"\s*:\s*"([^"]+)"[\s\S]*?\}/);
+          if (jsonMatch) {
+            targetAgent = jsonMatch[1].toLowerCase().trim();
+          } else {
+            // Try full JSON parse
+            const parsed = JSON.parse(fullResponse.trim());
+            targetAgent = (parsed.targetAgent || parsed.target_agent || parsed.agent || '').toLowerCase().trim();
+          }
+        } catch (_) {
+          // If not JSON, use the raw text trimmed as the agent name
+          targetAgent = fullResponse.trim().toLowerCase();
+        }
+
+        resolve({ targetAgent, fullResponse });
+      });
+
+      exchange.onErrorStart((error: any) => {
+        clearTimeout(routingTimeout);
+        reject(new Error(`Master agent error: ${error.message || error}`));
+      });
+
+      exchange.sendMessageWithContentPart({ data: message });
+    });
+
+    session.onErrorStart((error: any) => {
+      clearTimeout(routingTimeout);
+      reject(new Error(`Master agent session error: ${error.message || error}`));
+    });
+  });
+}
+
 // ─── API Routes ───
+
+// Get routing config (for frontend)
+app.get('/api/routing/config', apiLimiter, (_req, res) => {
+  res.json({
+    enabled: !!agentRouteConfig.masterAgentId,
+    masterAgentId: agentRouteConfig.masterAgentId,
+    routes: Object.keys(agentRouteConfig.routes),
+    fallbackAgentId: agentRouteConfig.fallbackAgentId || null,
+  });
+});
 
 // List all agents
 app.get('/api/agents', apiLimiter, async (_req, res) => {
@@ -436,9 +537,200 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   }
 });
 
+// ─── Routed chat: Master agent classifies intent → routes to sub-agent ───
+app.post('/api/chat/routed', chatLimiter, async (req, res) => {
+  const { message } = req.body;
+
+  if (!isValidString(message, 10000)) {
+    res.status(400).json({ error: 'Message is required and must be under 10,000 characters.' });
+    return;
+  }
+
+  if (!agentRouteConfig.masterAgentId) {
+    res.status(400).json({ error: 'Master agent not configured. Set MASTER_AGENT_ID in .env' });
+    return;
+  }
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (event: string, data: any) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let done = false;
+  const finish = () => {
+    if (!done) {
+      done = true;
+      sendEvent('done', {});
+      res.end();
+    }
+  };
+
+  const timeout = setTimeout(() => {
+    console.error('Routed chat timed out after 120s');
+    sendEvent('error', { message: 'Request timed out.' });
+    finish();
+  }, 120000);
+
+  try {
+    // Step 1: Ask master agent to classify the intent
+    console.log(`\n--- Routed chat request ---`);
+    console.log(`message: "${sanitizeLogMessage(message)}"`);
+    sendEvent('routing', { status: 'classifying', message: 'Analyzing your query...' });
+
+    const { targetAgent, fullResponse } = await getMasterAgentRouting(message);
+    console.log(`Master agent routed to: "${targetAgent}" (raw: "${sanitizeLogMessage(fullResponse)}")`);
+
+    // Step 2: Resolve the target sub-agent ID
+    let targetAgentId = agentRouteConfig.routes[targetAgent];
+
+    if (!targetAgentId) {
+      // Try partial matching against route keys
+      const routeKeys = Object.keys(agentRouteConfig.routes);
+      const match = routeKeys.find(key =>
+        targetAgent.includes(key) || key.includes(targetAgent)
+      );
+      if (match) targetAgentId = agentRouteConfig.routes[match];
+    }
+
+    if (!targetAgentId) {
+      targetAgentId = agentRouteConfig.fallbackAgentId || '';
+    }
+
+    if (!targetAgentId) {
+      clearTimeout(timeout);
+      sendEvent('routing', { status: 'no_match', targetAgent, message: `No sub-agent found for "${targetAgent}". Configure AGENT_ROUTES in .env` });
+      sendEvent('error', { message: `Could not route query. Master agent suggested "${targetAgent}" but no matching sub-agent is configured.` });
+      finish();
+      return;
+    }
+
+    sendEvent('routing', { status: 'routed', targetAgent, targetAgentId });
+
+    // Step 3: Create conversation with the target sub-agent and forward the original message
+    const agents = await conversationalAgent.getAll();
+    const subAgent = agents.find((a: any) => String(a.id) === targetAgentId);
+
+    if (!subAgent) {
+      clearTimeout(timeout);
+      sendEvent('error', { message: `Sub-agent ${targetAgentId} not found.` });
+      finish();
+      return;
+    }
+
+    const subConversation = await subAgent.conversations.create({ label: 'Routed Chat' });
+    const subSession = subConversation.startSession();
+
+    sendEvent('routing', { status: 'connected', agentName: subAgent.name, conversationId: subConversation.id });
+
+    // Store the sub-agent session for follow-up messages
+    const subConvId = String(subConversation.id);
+
+    subSession.onSessionStarted(() => {
+      console.log(`Sub-agent session ready (${subAgent.name})`);
+      const exchange = subSession.startExchange();
+
+      exchange.onMessageStart((msg: any) => {
+        if (msg.isAssistant) {
+          msg.onContentPartStart((part: any) => {
+            if (part.isMarkdown || part.isText || part.isHtml) {
+              const format = part.isMarkdown ? 'markdown' : part.isHtml ? 'html' : 'text';
+              part.onChunk((chunk: any) => {
+                if (chunk.data) {
+                  sendEvent('chunk', { text: chunk.data, format });
+                }
+                if (chunk.citation) {
+                  sendEvent('citation', {
+                    offset: chunk.citation.offset,
+                    length: chunk.citation.length,
+                    sources: chunk.citation.sources
+                  });
+                }
+              });
+              part.onCompleted?.((completed: any) => {
+                if (completed.citations && completed.citations.length > 0) {
+                  sendEvent('citations', {
+                    citations: completed.citations.map((c: any) => ({
+                      offset: c.offset,
+                      length: c.length,
+                      sources: c.sources?.map((s: any) => ({
+                        url: s.url,
+                        downloadUrl: s.downloadUrl,
+                        title: s.title || s.name
+                      })) || []
+                    }))
+                  });
+                }
+              });
+            }
+          });
+
+          msg.onToolCallStart((toolCall: any) => {
+            const toolName = toolCall.startEvent?.toolName ?? 'unknown';
+            sendEvent('tool', { name: toolName, status: 'started' });
+            toolCall.onToolCallEnd((_end: any) => {
+              sendEvent('tool', { name: toolName, status: 'completed' });
+            });
+          });
+
+          msg.onInterruptStart(({ interruptId }: any) => {
+            msg.sendInterruptEnd(interruptId, { approved: true });
+          });
+        }
+      });
+
+      exchange.onExchangeEnd(() => {
+        console.log('Routed exchange ended');
+        clearTimeout(timeout);
+
+        // Store session for follow-ups via regular /api/chat
+        activeSessions.set(subConvId, { session: subSession, lastActivity: Date.now() });
+        sendEvent('session', { conversationId: subConvId, agentName: subAgent.name });
+        finish();
+      });
+
+      exchange.onErrorStart((error: any) => {
+        console.error('Sub-agent exchange error:', error.message || error);
+        clearTimeout(timeout);
+        sendEvent('error', { message: 'Sub-agent encountered an error.' });
+        finish();
+      });
+
+      // Forward the original user message to the sub-agent
+      exchange.sendMessageWithContentPart({ data: message });
+    });
+
+    subSession.onErrorStart((error: any) => {
+      console.error('Sub-agent session error:', error.message || error);
+      clearTimeout(timeout);
+      sendEvent('error', { message: 'Failed to connect to sub-agent.' });
+      finish();
+    });
+
+    req.on('close', () => {
+      clearTimeout(timeout);
+      done = true;
+    });
+  } catch (error: any) {
+    console.error('Routed chat error:', error.message || error);
+    clearTimeout(timeout);
+    sendEvent('error', { message: error.message || 'Failed to route chat request.' });
+    finish();
+  }
+});
+
 // Serve the frontend
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Serve the Google-like search interface
+app.get('/search', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'search.html'));
 });
 
 // ─── 12. HTTPS Server ───

@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UiPath Agent Search</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+  <style>
+    :root {
+      --orange: #fa4616;
+      --orange-dark: #e03d10;
+      --gray-50: #f8f9fa;
+      --gray-100: #f0f2f5;
+      --gray-200: #e4e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --purple: #6b5ce7;
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+      --shadow-lg: 0 10px 25px -3px rgba(0,0,0,0.1), 0 4px 10px -4px rgba(0,0,0,0.1);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: white;
+      color: var(--gray-900);
+    }
+
+    /* ═══ Landing View (Google-like) ═══ */
+    .landing {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+      transition: all 0.3s ease;
+    }
+
+    .landing.active-chat {
+      min-height: auto;
+      padding-top: 24px;
+      justify-content: flex-start;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 36px;
+      transition: all 0.3s ease;
+    }
+
+    .active-chat .logo {
+      margin-bottom: 16px;
+    }
+
+    .logo-icon {
+      width: 48px;
+      height: 48px;
+      background: var(--orange);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 22px;
+    }
+
+    .active-chat .logo-icon {
+      width: 36px;
+      height: 36px;
+      font-size: 16px;
+      border-radius: 10px;
+    }
+
+    .logo-text {
+      font-size: 32px;
+      font-weight: 300;
+      color: var(--gray-800);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-text span { font-weight: 700; color: var(--orange); }
+
+    .active-chat .logo-text { font-size: 22px; }
+
+    /* Search box */
+    .search-container {
+      width: 100%;
+      max-width: 640px;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+
+    .search-box {
+      width: 100%;
+      padding: 16px 56px 16px 20px;
+      font-size: 16px;
+      border: 1px solid var(--gray-300);
+      border-radius: 28px;
+      outline: none;
+      background: white;
+      color: var(--gray-900);
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s;
+    }
+
+    .search-box:hover { box-shadow: var(--shadow-md); }
+    .search-box:focus { box-shadow: var(--shadow-lg); border-color: var(--gray-200); }
+
+    .search-box::placeholder { color: var(--gray-400); }
+
+    .search-btn {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 40px;
+      height: 40px;
+      background: var(--orange);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background 0.2s;
+    }
+
+    .search-btn:hover { background: var(--orange-dark); }
+    .search-btn:disabled { background: var(--gray-300); cursor: not-allowed; }
+
+    /* Suggestion chips */
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 20px;
+      max-width: 640px;
+      justify-content: center;
+    }
+
+    .active-chat .suggestions { display: none; }
+
+    .suggestion-chip {
+      padding: 8px 16px;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 20px;
+      font-size: 13px;
+      color: var(--gray-600);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .suggestion-chip:hover {
+      background: var(--orange);
+      color: white;
+      border-color: var(--orange);
+    }
+
+    /* Agent badge (shows which agent was picked) */
+    .agent-badge {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 6px 14px;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 20px;
+      font-size: 12px;
+      color: var(--gray-600);
+    }
+
+    .agent-badge.visible { display: inline-flex; }
+
+    .agent-badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    /* ═══ Chat area ═══ */
+    .chat-area {
+      width: 100%;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 0 20px 100px;
+      display: none;
+    }
+
+    .chat-area.visible { display: block; }
+
+    .message-row {
+      display: flex;
+      gap: 12px;
+      margin: 16px 0;
+      align-items: flex-start;
+    }
+
+    .message-row.user { justify-content: flex-end; }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .avatar.human { background: var(--gray-700); }
+    .avatar.bot { background: var(--orange); }
+
+    .message {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 16px;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .message.user {
+      background: var(--orange);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-bottom-left-radius: 4px;
+      color: var(--gray-800);
+    }
+
+    .message.assistant pre {
+      background: var(--gray-800);
+      color: #e5e7eb;
+      padding: 12px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+      margin: 8px 0;
+    }
+
+    .message.assistant code {
+      background: rgba(0,0,0,0.06);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .message.assistant pre code { background: none; padding: 0; }
+
+    .message.assistant a { color: var(--blue); }
+
+    .message.assistant p + p { margin-top: 8px; }
+
+    .message.assistant ul, .message.assistant ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    /* Typing indicator */
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+      align-items: center;
+    }
+
+    .typing-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--gray-400);
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    /* Routing indicator */
+    .routing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      margin: 8px 0;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      border-radius: 12px;
+      font-size: 12px;
+      color: #92400e;
+    }
+
+    .routing-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #fde68a;
+      border-top-color: #92400e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Tool indicator */
+    .tool-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      margin: 6px 0;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--gray-600);
+    }
+
+    .tool-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--gray-200);
+      border-top-color: var(--orange);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Citation bar */
+    .citation-bar {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--gray-200);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .citation-link {
+      font-size: 11px;
+      color: var(--blue);
+      text-decoration: none;
+      padding: 3px 8px;
+      background: rgba(59,130,246,0.08);
+      border-radius: 4px;
+    }
+
+    .citation-link:hover { background: rgba(59,130,246,0.15); }
+
+    /* Fixed bottom input for chat mode */
+    .bottom-input {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 20px 20px;
+      background: linear-gradient(transparent, white 20%);
+    }
+
+    .bottom-input.visible { display: block; }
+
+    .bottom-input-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .bottom-input .search-box {
+      padding: 14px 56px 14px 20px;
+      font-size: 14px;
+      border-radius: 24px;
+    }
+
+    /* New chat button */
+    .new-chat-btn {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      padding: 8px 16px;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 20px;
+      font-size: 13px;
+      color: var(--gray-600);
+      cursor: pointer;
+      display: none;
+      transition: all 0.15s;
+      z-index: 10;
+    }
+
+    .new-chat-btn:hover { border-color: var(--orange); color: var(--orange); }
+    .new-chat-btn.visible { display: inline-block; }
+
+    /* Footer */
+    .footer {
+      position: absolute;
+      bottom: 20px;
+      color: var(--gray-400);
+      font-size: 12px;
+    }
+
+    .active-chat .footer { display: none; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .logo-text { font-size: 24px; }
+      .active-chat .logo-text { font-size: 18px; }
+      .search-box { padding: 14px 48px 14px 16px; font-size: 15px; }
+      .suggestions { gap: 6px; }
+      .suggestion-chip { padding: 6px 12px; font-size: 12px; }
+      .message { max-width: 90%; }
+    }
+  </style>
+</head>
+<body>
+  <button class="new-chat-btn" id="new-chat-btn" onclick="newChat()">+ New Chat</button>
+
+  <div class="landing" id="landing">
+    <div class="logo">
+      <div class="logo-icon">U</div>
+      <div class="logo-text"><span>UiPath</span> Agent Search</div>
+    </div>
+
+    <div class="search-container">
+      <input class="search-box" type="text" id="search-input"
+        placeholder="Ask me anything..."
+        autocomplete="off" />
+      <button class="search-btn" id="search-btn" onclick="submitQuery()">&#10148;</button>
+    </div>
+
+    <div class="agent-badge" id="agent-badge">
+      <span class="agent-badge-dot"></span>
+      <span id="agent-badge-text"></span>
+    </div>
+
+    <div class="suggestions" id="suggestions">
+      <!-- Filled dynamically from agents' starting prompts -->
+    </div>
+
+    <div class="footer">Powered by UiPath Conversational Agents</div>
+  </div>
+
+  <div class="chat-area" id="chat-area"></div>
+
+  <div class="bottom-input" id="bottom-input">
+    <div class="bottom-input-inner">
+      <input class="search-box" type="text" id="followup-input"
+        placeholder="Ask a follow-up..."
+        autocomplete="off" />
+      <button class="search-btn" id="followup-btn" onclick="submitFollowup()">&#10148;</button>
+    </div>
+  </div>
+
+  <script>
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({ breaks: true, gfm: true });
+    }
+
+    const PURIFY_CONFIG = {
+      ALLOWED_TAGS: ['p','br','strong','em','b','i','u','a','code','pre','blockquote',
+        'ul','ol','li','h1','h2','h3','h4','h5','h6','table','thead','tbody',
+        'tr','th','td','hr','span','div','img','sup','sub','del','s'],
+      ALLOWED_ATTR: ['href','target','rel','src','alt','class','style'],
+      ALLOW_DATA_ATTR: false,
+    };
+
+    function renderMarkdown(text) {
+      if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(marked.parse(text), PURIFY_CONFIG);
+      }
+      return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function getApiHeaders(extra = {}) {
+      const headers = { ...extra };
+      const apiKey = localStorage.getItem('uipath_api_key');
+      if (apiKey) headers['x-api-key'] = apiKey;
+      return headers;
+    }
+
+    // ─── State ───
+    let currentConversationId = null;
+    let chatAbortController = null;
+    let allAgents = [];
+
+    const landing = document.getElementById('landing');
+    const chatArea = document.getElementById('chat-area');
+    const bottomInput = document.getElementById('bottom-input');
+    const newChatBtn = document.getElementById('new-chat-btn');
+
+    // ─── Load agents for suggestion chips ───
+    async function loadSuggestions() {
+      try {
+        const res = await fetch('/api/agents', { headers: getApiHeaders() });
+        allAgents = await res.json();
+
+        // Gather starting prompts from first few agents
+        const suggestions = document.getElementById('suggestions');
+        const chips = [];
+
+        for (const agent of allAgents.slice(0, 5)) {
+          try {
+            const detRes = await fetch('/api/agents/' + agent.id, { headers: getApiHeaders() });
+            const detail = await detRes.json();
+            if (detail.startingPrompts) {
+              detail.startingPrompts.slice(0, 2).forEach(p => {
+                chips.push(p);
+              });
+            }
+          } catch (_) {}
+        }
+
+        // Add some default suggestions if none from agents
+        if (chips.length === 0) {
+          chips.push('What can you help me with?', 'Tell me about available services', 'I need help with my account');
+        }
+
+        suggestions.innerHTML = chips.slice(0, 6).map(c =>
+          `<button class="suggestion-chip" onclick="useSuggestion(this)">${escapeHtml(c)}</button>`
+        ).join('');
+      } catch (_) {
+        document.getElementById('suggestions').innerHTML =
+          '<span style="color:var(--gray-400);font-size:12px;">Could not load suggestions</span>';
+      }
+    }
+
+    function useSuggestion(el) {
+      document.getElementById('search-input').value = el.textContent;
+      submitQuery();
+    }
+
+    // ─── Transition to chat mode ───
+    function enterChatMode() {
+      landing.classList.add('active-chat');
+      chatArea.classList.add('visible');
+      bottomInput.classList.add('visible');
+      newChatBtn.classList.add('visible');
+    }
+
+    function newChat() {
+      currentConversationId = null;
+      if (chatAbortController) { chatAbortController.abort(); chatAbortController = null; }
+      landing.classList.remove('active-chat');
+      chatArea.classList.remove('visible');
+      chatArea.innerHTML = '';
+      bottomInput.classList.remove('visible');
+      newChatBtn.classList.remove('visible');
+      document.getElementById('agent-badge').classList.remove('visible');
+      document.getElementById('search-input').value = '';
+      document.getElementById('search-input').focus();
+    }
+
+    // ─── Chat helpers ───
+    function addMessage(text, role) {
+      const row = document.createElement('div');
+      row.className = 'message-row ' + role;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar ' + (role === 'user' ? 'human' : 'bot');
+      avatar.textContent = role === 'user' ? 'U' : 'A';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message ' + role;
+      if (role === 'user') {
+        bubble.textContent = text;
+      } else {
+        bubble.innerHTML = text ? renderMarkdown(text) : '';
+      }
+
+      row.appendChild(avatar);
+      row.appendChild(bubble);
+      chatArea.appendChild(row);
+
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      return bubble;
+    }
+
+    function showRoutingIndicator(text) {
+      const el = document.createElement('div');
+      el.className = 'routing-indicator';
+      el.id = 'routing-active';
+      el.innerHTML = '<div class="routing-spinner"></div> ' + escapeHtml(text || 'Finding the right agent...');
+      chatArea.appendChild(el);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    function removeRoutingIndicator() {
+      const el = document.getElementById('routing-active');
+      if (el) el.remove();
+    }
+
+    function showTypingIndicator() {
+      const el = document.createElement('div');
+      el.className = 'typing-indicator';
+      el.id = 'typing-dots';
+      el.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+      chatArea.appendChild(el);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    function removeTypingIndicator() {
+      const el = document.getElementById('typing-dots');
+      if (el) el.remove();
+    }
+
+    function showToolIndicator(name) {
+      const el = document.createElement('div');
+      el.className = 'tool-indicator';
+      el.id = 'tool-active';
+      el.innerHTML = '<div class="tool-spinner"></div> Using <strong>' + escapeHtml(name) + '</strong>...';
+      chatArea.appendChild(el);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    function removeToolIndicator() {
+      const el = document.getElementById('tool-active');
+      if (el) el.remove();
+    }
+
+    // ─── Submit initial query (routed via master agent) ───
+    async function submitQuery() {
+      const input = document.getElementById('search-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      enterChatMode();
+      input.disabled = true;
+      document.getElementById('search-btn').disabled = true;
+
+      addMessage(text, 'user');
+      showRoutingIndicator('Finding the right agent...');
+
+      if (chatAbortController) chatAbortController.abort();
+      chatAbortController = new AbortController();
+
+      await streamChat('/api/chat/routed', { message: text }, chatAbortController.signal, true);
+
+      input.disabled = false;
+      document.getElementById('search-btn').disabled = false;
+      document.getElementById('followup-input').focus();
+    }
+
+    // ─── Submit follow-up (direct to sub-agent) ───
+    async function submitFollowup() {
+      const input = document.getElementById('followup-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      input.disabled = true;
+      document.getElementById('followup-btn').disabled = true;
+
+      addMessage(text, 'user');
+
+      if (chatAbortController) chatAbortController.abort();
+      chatAbortController = new AbortController();
+
+      if (currentConversationId) {
+        // Follow-up goes directly to the sub-agent
+        showTypingIndicator();
+        await streamChat('/api/chat', { conversationId: currentConversationId, message: text }, chatAbortController.signal, false);
+      } else {
+        // No conversation yet, route again
+        showRoutingIndicator('Finding the right agent...');
+        await streamChat('/api/chat/routed', { message: text }, chatAbortController.signal, true);
+      }
+
+      input.disabled = false;
+      document.getElementById('followup-btn').disabled = false;
+      input.focus();
+    }
+
+    // ─── Stream SSE response ───
+    async function streamChat(endpoint, body, signal, isRouted) {
+      let assistantEl = null;
+      let currentText = '';
+      let citations = [];
+      let firstChunk = true;
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: getApiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+          signal
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let eventType = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7);
+            } else if (line.startsWith('data: ') && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (eventType === 'routing') {
+                  if (data.status === 'classifying') {
+                    removeRoutingIndicator();
+                    showRoutingIndicator('Analyzing your query...');
+                  } else if (data.status === 'routed') {
+                    removeRoutingIndicator();
+                    showRoutingIndicator('Connecting to ' + (data.targetAgent || 'agent') + '...');
+                  } else if (data.status === 'connected') {
+                    removeRoutingIndicator();
+                    showTypingIndicator();
+                    // Show which agent is answering
+                    const badge = document.getElementById('agent-badge');
+                    document.getElementById('agent-badge-text').textContent = 'Answered by ' + data.agentName;
+                    badge.classList.add('visible');
+                    if (data.conversationId) currentConversationId = data.conversationId;
+                  } else if (data.status === 'no_match') {
+                    removeRoutingIndicator();
+                  }
+
+                } else if (eventType === 'session') {
+                  if (data.conversationId) currentConversationId = data.conversationId;
+
+                } else if (eventType === 'chunk') {
+                  if (firstChunk) {
+                    removeRoutingIndicator();
+                    removeTypingIndicator();
+                    removeToolIndicator();
+                    assistantEl = addMessage('', 'assistant');
+                    firstChunk = false;
+                  }
+                  currentText += data.text;
+                  assistantEl.innerHTML = renderMarkdown(currentText);
+                  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+                } else if (eventType === 'tool') {
+                  if (data.status === 'started') {
+                    removeTypingIndicator();
+                    showToolIndicator(data.name);
+                  } else if (data.status === 'completed') {
+                    removeToolIndicator();
+                    showTypingIndicator();
+                  }
+
+                } else if (eventType === 'citations') {
+                  if (data.citations) citations = citations.concat(data.citations);
+
+                } else if (eventType === 'citation') {
+                  citations.push(data);
+
+                } else if (eventType === 'error') {
+                  removeRoutingIndicator();
+                  removeTypingIndicator();
+                  removeToolIndicator();
+                  if (!assistantEl) assistantEl = addMessage('', 'assistant');
+                  assistantEl.innerHTML = '<span style="color:#c00">Error: ' + escapeHtml(data.message || 'Unknown error') + '</span>';
+                }
+              } catch (e) {}
+              eventType = '';
+            }
+          }
+        }
+
+        // Append citations
+        if (assistantEl && citations.length > 0) {
+          const bar = document.createElement('div');
+          bar.className = 'citation-bar';
+          const seen = new Set();
+          citations.forEach(c => {
+            (c.sources || []).forEach(s => {
+              const url = s.url || s.downloadUrl;
+              const title = s.title || 'Source';
+              if (url && !seen.has(url)) {
+                seen.add(url);
+                const a = document.createElement('a');
+                a.className = 'citation-link';
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.textContent = title;
+                bar.appendChild(a);
+              }
+            });
+          });
+          if (bar.children.length > 0) assistantEl.appendChild(bar);
+        }
+
+        if (!currentText && firstChunk) {
+          removeRoutingIndicator();
+          removeTypingIndicator();
+          removeToolIndicator();
+          addMessage('No response from agent. Please try again.', 'assistant');
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        removeRoutingIndicator();
+        removeTypingIndicator();
+        removeToolIndicator();
+        addMessage('Failed to get response. Please try again.', 'assistant');
+      }
+
+      removeRoutingIndicator();
+      removeTypingIndicator();
+      removeToolIndicator();
+    }
+
+    // ─── Key bindings ───
+    document.getElementById('search-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitQuery(); }
+    });
+
+    document.getElementById('followup-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitFollowup(); }
+    });
+
+    // ─── Init ───
+    loadSuggestions();
+    document.getElementById('search-input').focus();
+  </script>
+</body>
+</html>
