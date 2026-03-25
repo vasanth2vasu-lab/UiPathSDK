@@ -179,33 +179,68 @@ function cleanupStaleSessions(): void {
 setInterval(cleanupStaleSessions, 5 * 60 * 1000);
 
 // ─── 12. Agent routing configuration ───
-// Maps sub-agent display names (as returned by master agent) to their UiPath agent IDs.
-// Configure these with your actual agent IDs from `npx tsx list-agents.ts`.
+// The master agent receives the user query along with the full list of available
+// sub-agents (name, ID, description). It uses intent understanding — not keywords —
+// to decide which sub-agent should handle the query and returns its agent ID.
 interface AgentRouteConfig {
   masterAgentId: string;           // UiPath agent ID of the master/router agent
-  routes: Record<string, string>;  // mapping: lowercase route name → sub-agent ID
-  fallbackAgentId?: string;        // fallback agent ID if no route matches
+  fallbackAgentId?: string;        // fallback agent ID if master can't decide
 }
 
-// Load routing config from environment or use defaults.
-// Set MASTER_AGENT_ID, AGENT_ROUTES (JSON), and FALLBACK_AGENT_ID in .env
 const agentRouteConfig: AgentRouteConfig = {
   masterAgentId: process.env.MASTER_AGENT_ID || '',
-  routes: process.env.AGENT_ROUTES ? JSON.parse(process.env.AGENT_ROUTES) : {},
   fallbackAgentId: process.env.FALLBACK_AGENT_ID || '',
 };
 
-/**
- * Sends a message to the master agent and collects the full response (non-streaming).
- * The master agent should be configured to respond with JSON: {"targetAgent": "agent-name"}
- */
-async function getMasterAgentRouting(message: string): Promise<{ targetAgent: string; fullResponse: string }> {
+// Cache the agent catalogue (refreshed every 5 minutes)
+let agentCatalogueCache: { agents: any[]; timestamp: number } = { agents: [], timestamp: 0 };
+const CATALOGUE_TTL_MS = 5 * 60 * 1000;
+
+async function getAgentCatalogue(): Promise<any[]> {
+  const now = Date.now();
+  if (agentCatalogueCache.agents.length > 0 && now - agentCatalogueCache.timestamp < CATALOGUE_TTL_MS) {
+    return agentCatalogueCache.agents;
+  }
   const agents = await conversationalAgent.getAll();
+  agentCatalogueCache = { agents, timestamp: now };
+  return agents;
+}
+
+/**
+ * Builds a routing prompt that includes the full agent catalogue.
+ * The master agent uses intent understanding to pick the right sub-agent.
+ */
+function buildRoutingPrompt(userMessage: string, agents: any[], masterAgentId: string): string {
+  const agentList = agents
+    .filter((a: any) => String(a.id) !== masterAgentId) // exclude master from candidates
+    .map((a: any) => `- ID: "${a.id}" | Name: "${a.name}" | Description: "${a.description || 'No description'}"`)
+    .join('\n');
+
+  return `You are a routing agent. Your ONLY job is to analyze the user's intent and pick the most appropriate sub-agent to handle their query.
+
+Available agents:
+${agentList}
+
+User query: "${userMessage}"
+
+Respond with ONLY a JSON object — no explanation, no markdown, no extra text:
+{"agentId": "<the agent ID that best matches the user's intent>", "agentName": "<the agent name>"}
+
+Pick the agent whose description and purpose best matches what the user is asking about. Use semantic understanding of the user's intent, not keyword matching.`;
+}
+
+/**
+ * Sends a message to the master agent with the full agent catalogue.
+ * The master agent analyzes intent and returns the target agent ID directly.
+ */
+async function getMasterAgentRouting(message: string): Promise<{ agentId: string; agentName: string; fullResponse: string }> {
+  const agents = await getAgentCatalogue();
   const masterAgent = agents.find((a: any) => String(a.id) === agentRouteConfig.masterAgentId);
   if (!masterAgent) {
     throw new Error('Master agent not found. Set MASTER_AGENT_ID in .env');
   }
 
+  const routingPrompt = buildRoutingPrompt(message, agents, agentRouteConfig.masterAgentId);
   const conversation = await masterAgent.conversations.create({ label: 'Routing' });
   const session = conversation.startSession();
 
@@ -234,24 +269,36 @@ async function getMasterAgentRouting(message: string): Promise<{ targetAgent: st
         clearTimeout(routingTimeout);
         session.end?.();
 
-        // Try to parse JSON from the response
-        let targetAgent = '';
+        let agentId = '';
+        let agentName = '';
+
         try {
-          // Look for JSON anywhere in the response
-          const jsonMatch = fullResponse.match(/\{[\s\S]*?"targetAgent"\s*:\s*"([^"]+)"[\s\S]*?\}/);
+          // Extract JSON from response (master agent may wrap it in markdown)
+          const jsonMatch = fullResponse.match(/\{[\s\S]*?"agentId"\s*:\s*"([^"]+)"[\s\S]*?\}/);
           if (jsonMatch) {
-            targetAgent = jsonMatch[1].toLowerCase().trim();
+            const parsed = JSON.parse(jsonMatch[0]);
+            agentId = (parsed.agentId || '').trim();
+            agentName = (parsed.agentName || '').trim();
           } else {
-            // Try full JSON parse
             const parsed = JSON.parse(fullResponse.trim());
-            targetAgent = (parsed.targetAgent || parsed.target_agent || parsed.agent || '').toLowerCase().trim();
+            agentId = (parsed.agentId || parsed.agent_id || parsed.id || '').trim();
+            agentName = (parsed.agentName || parsed.agent_name || parsed.name || '').trim();
           }
         } catch (_) {
-          // If not JSON, use the raw text trimmed as the agent name
-          targetAgent = fullResponse.trim().toLowerCase();
+          // If parsing fails, try to find an agent ID pattern in the response
+          const idMatch = fullResponse.match(/[a-f0-9-]{8,}/i);
+          if (idMatch) agentId = idMatch[0];
         }
 
-        resolve({ targetAgent, fullResponse });
+        // Validate the returned agentId actually exists
+        const validAgent = agents.find((a: any) => String(a.id) === agentId);
+        if (validAgent) {
+          agentName = validAgent.name;
+        } else {
+          agentId = ''; // will trigger fallback
+        }
+
+        resolve({ agentId, agentName, fullResponse });
       });
 
       exchange.onErrorStart((error: any) => {
@@ -259,7 +306,7 @@ async function getMasterAgentRouting(message: string): Promise<{ targetAgent: st
         reject(new Error(`Master agent error: ${error.message || error}`));
       });
 
-      exchange.sendMessageWithContentPart({ data: message });
+      exchange.sendMessageWithContentPart({ data: routingPrompt });
     });
 
     session.onErrorStart((error: any) => {
@@ -276,7 +323,6 @@ app.get('/api/routing/config', apiLimiter, (_req, res) => {
   res.json({
     enabled: !!agentRouteConfig.masterAgentId,
     masterAgentId: agentRouteConfig.masterAgentId,
-    routes: Object.keys(agentRouteConfig.routes),
     fallbackAgentId: agentRouteConfig.fallbackAgentId || null,
   });
 });
@@ -582,37 +628,30 @@ app.post('/api/chat/routed', chatLimiter, async (req, res) => {
     console.log(`message: "${sanitizeLogMessage(message)}"`);
     sendEvent('routing', { status: 'classifying', message: 'Analyzing your query...' });
 
-    const { targetAgent, fullResponse } = await getMasterAgentRouting(message);
-    console.log(`Master agent routed to: "${targetAgent}" (raw: "${sanitizeLogMessage(fullResponse)}")`);
+    const { agentId: routedAgentId, agentName: routedAgentName, fullResponse } = await getMasterAgentRouting(message);
+    console.log(`Master agent routed to: "${routedAgentName}" (${routedAgentId}) (raw: "${sanitizeLogMessage(fullResponse)}")`);
 
-    // Step 2: Resolve the target sub-agent ID
-    let targetAgentId = agentRouteConfig.routes[targetAgent];
+    // Step 2: Resolve the target sub-agent — master agent returns the ID directly
+    let targetAgentId = routedAgentId;
 
-    if (!targetAgentId) {
-      // Try partial matching against route keys
-      const routeKeys = Object.keys(agentRouteConfig.routes);
-      const match = routeKeys.find(key =>
-        targetAgent.includes(key) || key.includes(targetAgent)
-      );
-      if (match) targetAgentId = agentRouteConfig.routes[match];
-    }
-
-    if (!targetAgentId) {
-      targetAgentId = agentRouteConfig.fallbackAgentId || '';
+    // Fall back only if master agent couldn't determine intent
+    if (!targetAgentId && agentRouteConfig.fallbackAgentId) {
+      console.log('Master agent could not determine intent, using fallback agent');
+      targetAgentId = agentRouteConfig.fallbackAgentId;
     }
 
     if (!targetAgentId) {
       clearTimeout(timeout);
-      sendEvent('routing', { status: 'no_match', targetAgent, message: `No sub-agent found for "${targetAgent}". Configure AGENT_ROUTES in .env` });
-      sendEvent('error', { message: `Could not route query. Master agent suggested "${targetAgent}" but no matching sub-agent is configured.` });
+      sendEvent('routing', { status: 'no_match', message: 'Could not determine the right agent for your query.' });
+      sendEvent('error', { message: 'Unable to route your query. The master agent could not determine which agent to use.' });
       finish();
       return;
     }
 
-    sendEvent('routing', { status: 'routed', targetAgent, targetAgentId });
+    sendEvent('routing', { status: 'routed', targetAgent: routedAgentName || targetAgentId, targetAgentId });
 
     // Step 3: Create conversation with the target sub-agent and forward the original message
-    const agents = await conversationalAgent.getAll();
+    const agents = await getAgentCatalogue();
     const subAgent = agents.find((a: any) => String(a.id) === targetAgentId);
 
     if (!subAgent) {
