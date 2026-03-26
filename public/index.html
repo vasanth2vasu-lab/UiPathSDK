@@ -184,87 +184,6 @@
 
     .agent-item.has-session .session-dot { opacity: 1; }
 
-    /* Smart Route toggle */
-    .route-toggle {
-      padding: 8px 14px;
-      border-top: 1px solid rgba(255,255,255,0.06);
-      flex-shrink: 0;
-    }
-
-    .route-toggle label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      font-size: 11.5px;
-      color: rgba(255,255,255,0.7);
-    }
-
-    .route-toggle label:hover { color: white; }
-
-    .toggle-switch {
-      position: relative;
-      width: 32px;
-      height: 18px;
-      flex-shrink: 0;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .toggle-slider {
-      position: absolute;
-      inset: 0;
-      background: rgba(255,255,255,0.15);
-      border-radius: 9px;
-      transition: 0.2s;
-    }
-
-    .toggle-slider::before {
-      content: '';
-      position: absolute;
-      width: 14px;
-      height: 14px;
-      left: 2px;
-      bottom: 2px;
-      background: white;
-      border-radius: 50%;
-      transition: 0.2s;
-    }
-
-    .toggle-switch input:checked + .toggle-slider {
-      background: var(--orange);
-    }
-
-    .toggle-switch input:checked + .toggle-slider::before {
-      transform: translateX(14px);
-    }
-
-    .routing-badge {
-      display: inline-block;
-      background: var(--purple);
-      color: white;
-      font-size: 9px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-left: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .routing-status {
-      font-size: 11px;
-      color: var(--purple);
-      padding: 6px 14px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
     .agent-count {
       padding: 8px 14px;
       font-size: 11px;
@@ -529,15 +448,6 @@
       <div class="sidebar-label">Agents</div>
       <div class="agent-list" id="agent-list"></div>
       <div class="agent-count" id="agent-count"></div>
-      <div class="route-toggle" id="route-toggle-container" style="display:none;">
-        <label>
-          <span class="toggle-switch">
-            <input type="checkbox" id="route-toggle" onchange="toggleRouting()" />
-            <span class="toggle-slider"></span>
-          </span>
-          Smart Route
-        </label>
-      </div>
     </aside>
 
     <!-- Main Area -->
@@ -554,7 +464,7 @@
         <div class="chat-topbar">
           <div class="chat-topbar-dot" id="chat-topbar-dot"></div>
           <div class="chat-topbar-info">
-            <div class="chat-topbar-name" id="chat-topbar-name"></div><span class="routing-badge" id="routing-badge" style="display:none;">Routed</span>
+            <div class="chat-topbar-name" id="chat-topbar-name"></div>
             <div class="chat-topbar-status" id="chat-topbar-status"><span class="status-dot"></span> Online</div>
           </div>
         </div>
@@ -651,28 +561,6 @@
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       } catch (_) {}
-    }
-
-    let routingEnabled = false;
-    let routingConfigured = false;
-
-    // Check if routing is configured on the server
-    async function checkRoutingConfig() {
-      try {
-        const res = await fetch('/api/routing/config', { headers: getApiHeaders() });
-        const config = await res.json();
-        routingConfigured = config.enabled;
-        if (routingConfigured) {
-          document.getElementById('route-toggle-container').style.display = 'block';
-        }
-      } catch (_) {}
-    }
-
-    function toggleRouting() {
-      routingEnabled = document.getElementById('route-toggle').checked;
-      // Update topbar if an agent is selected
-      const badge = document.getElementById('routing-badge');
-      if (badge) badge.style.display = routingEnabled ? 'inline-block' : 'none';
     }
 
     loadSessionsFromStorage();
@@ -955,17 +843,10 @@
       const signal = chatAbortController.signal;
 
       try {
-        // Choose endpoint: routed (master agent) or direct
-        const useRouted = routingEnabled && routingConfigured;
-        const endpoint = useRouted ? '/api/chat/routed' : '/api/chat';
-        const body = useRouted
-          ? { message: text }
-          : { conversationId, message: text };
-
-        const res = await fetch(endpoint, {
+        const res = await fetch('/api/chat', {
           method: 'POST',
           headers: getApiHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify(body),
+          body: JSON.stringify({ conversationId, message: text }),
           signal
         });
 
@@ -991,27 +872,7 @@
               try {
                 const data = JSON.parse(line.slice(6));
 
-                if (eventType === 'routing') {
-                  // Show routing status in typing area
-                  removeTypingIndicator();
-                  if (data.status === 'classifying') {
-                    showTypingIndicator();
-                  } else if (data.status === 'routed') {
-                    removeTypingIndicator();
-                    showTypingIndicator();
-                  } else if (data.status === 'connected') {
-                    // Update topbar to show which sub-agent answered
-                    document.getElementById('chat-topbar-name').textContent =
-                      currentAgent.name + ' → ' + data.agentName;
-                    // Store the sub-agent's conversationId for follow-ups
-                    if (data.conversationId) conversationId = data.conversationId;
-                  }
-
-                } else if (eventType === 'session') {
-                  // Update conversationId to the sub-agent's for follow-up messages
-                  if (data.conversationId) conversationId = data.conversationId;
-
-                } else if (eventType === 'chunk') {
+                if (eventType === 'chunk') {
                   if (firstChunk) {
                     removeTypingIndicator();
                     removeToolIndicator();
@@ -1116,7 +977,6 @@
     });
 
     loadAgents();
-    checkRoutingConfig();
   </script>
 </body>
 </html>
