@@ -361,7 +361,7 @@ app.get('/api/agents/:agentId', apiLimiter, async (req, res) => {
 
     let appearance: any = {};
     try {
-      const detail = await conversationalAgent.getById(agent.id);
+      const detail = await conversationalAgent.getById(agent.id, agent.folderId);
       appearance = detail?.appearance || {};
     } catch (_) {}
 
