@@ -2,12 +2,12 @@
   "name": "uipathsdk",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
-  "main": "dist/server.js",
+  "description": "UiPath Agent Hub - Coded App",
   "scripts": {
-    "start": "npx tsx server.ts",
-    "build": "tsc && cp -r public dist/",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start:server": "npx tsx server.ts"
   },
   "repository": {
     "type": "git",
@@ -17,18 +17,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@types/node": "^25.3.5",
     "@uipath/uipath-typescript": "^1.2.1",
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.3.1",
-    "helmet": "^8.1.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "dompurify": "^3.2.4",
+    "marked": "^15.0.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6"
+    "@types/dompurify": "^3.2.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
   }
 }

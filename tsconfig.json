@@ -1,20 +1,17 @@
 {
   "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "outDir": "./dist",
-    "module": "nodenext",
-    "target": "esnext",
     "types": ["node"],
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-    "skipLibCheck": true,
     "strict": false,
-    "jsx": "react-jsx",
-    "isolatedModules": true,
-    "moduleDetection": "force",
+    "skipLibCheck": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx"
   },
-  "include": ["server.ts"],
-  "exclude": ["node_modules", "dist", "project-manager", "get-folders.ts", "list-agents.ts"]
+  "include": ["src/**/*.ts", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }
